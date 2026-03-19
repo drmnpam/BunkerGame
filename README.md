@@ -2,6 +2,8 @@
 
 Desktop-first browser automation agent with multi-LLM orchestration and Kapture MCP execution.
 
+![Kapture Automation Agent Logo](automation-client/branding/logo.png)
+
 ## Overview
 
 This project runs user tasks in a real browser tab through Kapture MCP:

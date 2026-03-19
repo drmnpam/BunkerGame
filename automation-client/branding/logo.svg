@@ -1,0 +1,24 @@
+﻿<svg width=\"1024\" height=\"1024\" viewBox=\"0 0 1024 1024\" xmlns=\"http://www.w3.org/2000/svg\">
+  <defs>
+    <linearGradient id=\"bg\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">
+      <stop offset=\"0%\" stop-color=\"#1c1f27\"/>
+      <stop offset=\"100%\" stop-color=\"#0b0d12\"/>
+    </linearGradient>
+    <linearGradient id=\"g1\" x1=\"20%\" y1=\"20%\" x2=\"80%\" y2=\"80%\">
+      <stop offset=\"0%\" stop-color=\"#ff4f7a\"/>
+      <stop offset=\"100%\" stop-color=\"#7e46ff\"/>
+    </linearGradient>
+    <linearGradient id=\"g2\" x1=\"20%\" y1=\"20%\" x2=\"80%\" y2=\"80%\">
+      <stop offset=\"0%\" stop-color=\"#ffcf4c\"/>
+      <stop offset=\"100%\" stop-color=\"#4ac7ff\"/>
+    </linearGradient>
+    <linearGradient id=\"g3\" x1=\"20%\" y1=\"20%\" x2=\"80%\" y2=\"80%\">
+      <stop offset=\"0%\" stop-color=\"#6df1a0\"/>
+      <stop offset=\"100%\" stop-color=\"#5938ff\"/>
+    </linearGradient>
+  </defs>
+  <rect width=\"1024\" height=\"1024\" fill=\"url(#bg)\"/>
+  <path d=\"M180 760C320 460 420 260 512 240C604 260 704 460 844 760C720 710 610 690 512 680C414 690 304 710 180 760Z\" fill=\"url(#g1)\" stroke=\"rgba(255,255,255,.25)\"/>
+  <path d=\"M220 690C334 480 420 340 512 320C604 340 690 480 804 690C696 652 600 634 512 626C424 634 328 652 220 690Z\" fill=\"url(#g2)\" stroke=\"rgba(255,255,255,.2)\"/>
+  <path d=\"M258 760C350 610 424 540 512 530C600 540 674 610 766 760C678 730 594 716 512 712C430 716 346 730 258 760Z\" fill=\"url(#g3)\" stroke=\"rgba(255,255,255,.18)\"/>
+</svg>
