@@ -53,25 +53,47 @@ TOOLS (allowed actions):
     maxSteps: number;
   }): Promise<ToolCall> {
     const intent = await this.parseUserIntent(params.taskText);
+    const fullUserPrompt =
+      `TASK:\n${intent}\n\n` +
+      `ACTIONS_SO_FAR (executed so far):\n${JSON.stringify(params.actionsSoFar, null, 2)}\n\n` +
+      `LAST_OBSERVATION (result from MCP for the last step; may be large):\n${this.safeStringify(params.lastObservation)}\n\n` +
+      `LAST_ERROR (if previous MCP/action failed):\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
+      `Now choose the NEXT tool call. You must return JSON with either status="continue" or status="done".\n` +
+      `If the goal is already sufficiently achieved, or further automation is blocked by auth/captcha/permissions/uncertain selectors, return status="done" with finalResult.\n` +
+      `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}`;
 
-    const response = await this.llm.generate({
-      model: this.model,
-      temperature: 0.2,
-      maxTokens: 260,
-      messages: [
-        { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `TASK:\n${intent}\n\n` +
-            `ACTIONS_SO_FAR (executed so far):\n${JSON.stringify(params.actionsSoFar, null, 2)}\n\n` +
-            `LAST_OBSERVATION (result from MCP for the last step; may be large):\n${this.safeStringify(params.lastObservation)}\n\n` +
-            `LAST_ERROR (if previous MCP/action failed):\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
-            `Now choose the NEXT tool call. You must return JSON with either status="continue" or status="done".\n` +
-            `If the goal is already sufficiently achieved, or further automation is blocked by auth/captcha/permissions/uncertain selectors, return status="done" with finalResult.\n` +
-            `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}`,
-        },
-      ],
-    });
+    let response;
+    try {
+      response = await this.llm.generate({
+        model: this.model,
+        temperature: 0.2,
+        maxTokens: 260,
+        messages: [
+          { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
+          { role: 'user', content: fullUserPrompt },
+        ],
+      });
+    } catch (e) {
+      if (!this.isPromptBudgetError(e)) throw e;
+      response = await this.llm.generate({
+        model: this.model,
+        temperature: 0.2,
+        maxTokens: 180,
+        messages: [
+          { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content:
+              `TASK:\n${intent}\n` +
+              `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}\n` +
+              `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n` +
+              `LAST_ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 3)}\n` +
+              `LAST_OBSERVATION_SHORT:\n${this.safeStringify(params.lastObservation, 420)}\n` +
+              `Return ONLY one valid JSON object.`,
+          },
+        ],
+      });
+    }
 
     return this.parseToolCallOrThrow(response.content, 'generateNextToolCall');
   }
@@ -87,41 +109,75 @@ TOOLS (allowed actions):
     parseErrorMessage: string;
   }): Promise<ToolCall> {
     const intent = await this.parseUserIntent(params.taskText);
+    const fullUserPrompt =
+      `You returned invalid JSON for the tool call.\n` +
+      `TASK:\n${intent}\n\n` +
+      `ACTIONS_SO_FAR:\n${JSON.stringify(params.actionsSoFar, null, 2)}\n\n` +
+      `LAST_OBSERVATION:\n${this.safeStringify(params.lastObservation)}\n\n` +
+      `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
+      `INVALID_OUTPUT:\n${params.rawModelOutput}\n\n` +
+      `PARSE_ERROR:\n${params.parseErrorMessage}\n\n` +
+      `Return ONLY a corrected JSON object that matches the schema.`;
 
-    const response = await this.llm.generate({
-      model: this.model,
-      temperature: 0.2,
-      maxTokens: 220,
-      messages: [
-        {
-          role: 'system',
-          content: this.TOOL_SYSTEM_PROMPT,
-        },
-        {
-          role: 'user',
-          content:
-            `You returned invalid JSON for the tool call.\n` +
-            `TASK:\n${intent}\n\n` +
-            `ACTIONS_SO_FAR:\n${JSON.stringify(params.actionsSoFar, null, 2)}\n\n` +
-            `LAST_OBSERVATION:\n${this.safeStringify(params.lastObservation)}\n\n` +
-            `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
-            `INVALID_OUTPUT:\n${params.rawModelOutput}\n\n` +
-            `PARSE_ERROR:\n${params.parseErrorMessage}\n\n` +
-            `Return ONLY a corrected JSON object that matches the schema.`,
-        },
-      ],
-    });
+    let response;
+    try {
+      response = await this.llm.generate({
+        model: this.model,
+        temperature: 0.2,
+        maxTokens: 220,
+        messages: [
+          {
+            role: 'system',
+            content: this.TOOL_SYSTEM_PROMPT,
+          },
+          {
+            role: 'user',
+            content: fullUserPrompt,
+          },
+        ],
+      });
+    } catch (e) {
+      if (!this.isPromptBudgetError(e)) throw e;
+      response = await this.llm.generate({
+        model: this.model,
+        temperature: 0.2,
+        maxTokens: 170,
+        messages: [
+          { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content:
+              `Invalid JSON. Return corrected JSON object only.\n` +
+              `TASK:\n${intent}\n` +
+              `LAST_ERROR:${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n` +
+              `PARSE_ERROR:${params.parseErrorMessage}\n` +
+              `INVALID_OUTPUT_SHORT:\n${this.safeStringify(params.rawModelOutput, 300)}`,
+          },
+        ],
+      });
+    }
 
     return this.parseToolCallOrThrow(response.content, 'selfCorrectToolCall');
   }
 
-  private safeStringify(v: any) {
+  private safeStringify(v: any, maxLen = 1800) {
     try {
       const s = typeof v === 'string' ? v : JSON.stringify(v);
-      return s.length > 1800 ? `${s.slice(0, 1800)}...` : s;
+      return s.length > maxLen ? `${s.slice(0, maxLen)}...` : s;
     } catch {
       return String(v);
     }
+  }
+
+  private actionsTail(actions: BrowserAction[], count: number): string {
+    const tail = actions.slice(Math.max(0, actions.length - count));
+    return this.safeStringify(tail, 350);
+  }
+
+  private isPromptBudgetError(err: unknown): boolean {
+    const message = (err as any)?.message;
+    if (!message || typeof message !== 'string') return false;
+    return message.toLowerCase().includes('prompt tokens limit exceeded');
   }
 
   private parseToolCallOrThrow(raw: string, origin: string): ToolCall {

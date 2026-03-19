@@ -213,6 +213,7 @@ export class LLMManager {
       msg.includes('cors')
     )
       return 'network';
+    if (msg.includes('prompt tokens limit exceeded')) return 'unavailable';
     return 'logic';
   }
 }
