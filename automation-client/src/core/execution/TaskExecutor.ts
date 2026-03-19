@@ -62,6 +62,7 @@ export class TaskExecutor {
     const stepEndExclusive = stepStart + this.maxSteps;
 
     let consecutiveMcpErrors = 0;
+    let consecutivePlannerTempFailures = 0;
 
     this.state.setStatus('running');
     this.callbacks.onStatusChange('running');
@@ -124,6 +125,22 @@ export class TaskExecutor {
           this.callbacks.onStepLog(`[PlannerError] ${err?.message ?? String(e)}`);
           lastRawModelOutput = err?.rawModelOutput ?? lastRawModelOutput;
           lastParseErrorMessage = err?.message ?? String(e);
+          if (this.isLikelyProviderTemporaryFailure(lastParseErrorMessage)) {
+            consecutivePlannerTempFailures += 1;
+            const waitMs = this.computePlannerBackoffWaitMs(consecutivePlannerTempFailures);
+            const fallback: BrowserAction = {
+              action: 'wait',
+              waitMs,
+              description: `Fallback: provider temporary unavailable, backoff wait ${waitMs}ms.`,
+            };
+            this.callbacks.onStepLog(
+              `[Planner] temporary provider failure, injecting backoff wait: ${waitMs}ms`,
+            );
+            toolCall = fallback as ToolCall;
+            break;
+          }
+
+          consecutivePlannerTempFailures = 0;
           if (
             this.isLikelyToolFormatError(lastParseErrorMessage) &&
             this.isLikelyTruncatedToolCall(lastRawModelOutput)
@@ -324,6 +341,12 @@ export class TaskExecutor {
     const s = (rawOutput ?? '').trim();
     if (!s) return false;
     return s.startsWith('{') && !s.endsWith('}');
+  }
+
+  private computePlannerBackoffWaitMs(consecutiveFailures: number): number {
+    const step = Math.max(0, consecutiveFailures - 1);
+    const ms = 2000 * Math.pow(2, Math.min(step, 5));
+    return Math.min(ms, 60_000);
   }
 
   private makeFallbackToolCall(stepIndex: number, lastErrorMessage?: string): BrowserAction {

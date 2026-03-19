@@ -40,6 +40,7 @@ export class OpenRouterProvider implements LLMProvider {
   private readonly reasoningExclude: boolean;
   private readonly budgetCooldownMs: number;
   private readonly emptyContentCooldownMs: number;
+  private readonly rateLimitCooldownMs: number;
   private readonly modelBlockedUntil = new Map<string, number>();
   private readonly lowBudgetModeMs: number;
   private lowBudgetModeUntil = 0;
@@ -80,6 +81,7 @@ export class OpenRouterProvider implements LLMProvider {
       (envExclude === undefined ? true : envExclude === '1' || envExclude === 'true');
     this.budgetCooldownMs = 10 * 60 * 1000;
     this.emptyContentCooldownMs = 3 * 60 * 1000;
+    this.rateLimitCooldownMs = 60 * 1000;
     this.lowBudgetModeMs = 15 * 60 * 1000;
   }
 
@@ -196,11 +198,13 @@ export class OpenRouterProvider implements LLMProvider {
         }
 
         if (res.status === 429) {
-          throw new OpenRouterProviderError(
+          this.markModelTemporarilyBlocked(model, this.rateLimitCooldownMs);
+          lastErr = new OpenRouterProviderError(
             `OpenRouter rate-limited (HTTP 429).`,
             'unavailable',
             { status: res.status, attemptedModel: model },
           );
+          continue;
         }
 
         if (res.status === 402 && this.isBudgetError(lower)) {
