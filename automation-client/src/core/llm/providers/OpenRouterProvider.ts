@@ -51,6 +51,7 @@ export class OpenRouterProvider implements LLMProvider {
   private readonly emptyContentCooldownMs: number;
   private readonly rateLimitCooldownMs: number;
   private readonly notFoundCooldownMs: number;
+  private readonly incompatibleModelCooldownMs: number;
   private readonly modelBlockedUntil = new Map<string, number>();
   private readonly lowBudgetModeMs: number;
   private lowBudgetModeUntil = 0;
@@ -95,6 +96,7 @@ export class OpenRouterProvider implements LLMProvider {
     this.emptyContentCooldownMs = 3 * 60 * 1000;
     this.rateLimitCooldownMs = 60 * 1000;
     this.notFoundCooldownMs = 24 * 60 * 60 * 1000;
+    this.incompatibleModelCooldownMs = 24 * 60 * 60 * 1000;
     this.lowBudgetModeMs = 15 * 60 * 1000;
   }
 
@@ -232,6 +234,16 @@ export class OpenRouterProvider implements LLMProvider {
           continue;
         }
 
+        if (res.status === 400 && this.isDeveloperInstructionUnsupported(lower)) {
+          this.markModelTemporarilyBlocked(model, this.incompatibleModelCooldownMs);
+          lastErr = new OpenRouterProviderError(
+            `OpenRouter model incompatible with developer instructions: ${model}.`,
+            'model',
+            { status: res.status, attemptedModel: model },
+          );
+          continue;
+        }
+
         throw new OpenRouterProviderError(
           `OpenRouter API error (HTTP ${res.status}): ${text}`,
           'api',
@@ -353,6 +365,13 @@ export class OpenRouterProvider implements LLMProvider {
       lowerBody.includes('requires more credits') ||
       lowerBody.includes('fewer max_tokens') ||
       lowerBody.includes('prompt tokens limit exceeded')
+    );
+  }
+
+  private isDeveloperInstructionUnsupported(lowerBody: string): boolean {
+    return (
+      lowerBody.includes('developer instruction is not enabled') ||
+      lowerBody.includes('developer instructions are not enabled')
     );
   }
 

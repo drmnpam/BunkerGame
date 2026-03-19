@@ -334,6 +334,8 @@ export class TaskExecutor {
       m.includes('model not found') ||
       m.includes('no such model') ||
       m.includes('unknown model') ||
+      m.includes('model incompatible with developer instructions') ||
+      m.includes('developer instruction is not enabled') ||
       m.includes('prompt tokens limit exceeded') ||
       m.includes('requires more credits') ||
       m.includes('can only afford')
