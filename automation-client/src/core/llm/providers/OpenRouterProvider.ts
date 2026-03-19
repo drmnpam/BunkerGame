@@ -113,7 +113,7 @@ export class OpenRouterProvider implements LLMProvider {
     for (const model of modelsToTry) {
       let res: Response | null = null;
       let text = '';
-      let maxTokens = Math.max(64, request.maxTokens ?? 320);
+      let maxTokens = Math.max(16, request.maxTokens ?? 320);
 
       for (let budgetAttempt = 0; budgetAttempt < 3; budgetAttempt++) {
         try {
@@ -147,7 +147,7 @@ export class OpenRouterProvider implements LLMProvider {
         if (res.status === 402) {
           const affordable = this.parseAffordableTokens(text);
           if (affordable !== null) {
-            const nextBudget = Math.max(48, Math.min(maxTokens - 1, affordable - 24));
+            const nextBudget = Math.max(8, Math.min(maxTokens - 1, affordable - 8));
             if (nextBudget < maxTokens) {
               maxTokens = nextBudget;
               continue;
@@ -193,6 +193,15 @@ export class OpenRouterProvider implements LLMProvider {
             'unavailable',
             { status: res.status, attemptedModel: model },
           );
+        }
+
+        if (res.status === 402 && this.isBudgetError(lower)) {
+          lastErr = new OpenRouterProviderError(
+            `OpenRouter budget insufficient for model ${model}.`,
+            'unavailable',
+            { status: res.status, attemptedModel: model },
+          );
+          continue;
         }
 
         throw new OpenRouterProviderError(
@@ -284,6 +293,15 @@ export class OpenRouterProvider implements LLMProvider {
     const parsed = Number(m[1]);
     if (!Number.isFinite(parsed) || parsed <= 0) return null;
     return Math.floor(parsed);
+  }
+
+  private isBudgetError(lowerBody: string): boolean {
+    return (
+      lowerBody.includes('can only afford') ||
+      lowerBody.includes('requires more credits') ||
+      lowerBody.includes('fewer max_tokens') ||
+      lowerBody.includes('prompt tokens limit exceeded')
+    );
   }
 
   private buildHeaders(includeContentType: boolean): Record<string, string> {

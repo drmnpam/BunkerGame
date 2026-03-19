@@ -177,7 +177,13 @@ TOOLS (allowed actions):
   private isPromptBudgetError(err: unknown): boolean {
     const message = (err as any)?.message;
     if (!message || typeof message !== 'string') return false;
-    return message.toLowerCase().includes('prompt tokens limit exceeded');
+    const lower = message.toLowerCase();
+    return (
+      lower.includes('prompt tokens limit exceeded') ||
+      lower.includes('requires more credits') ||
+      lower.includes('fewer max_tokens') ||
+      lower.includes('can only afford')
+    );
   }
 
   private parseToolCallOrThrow(raw: string, origin: string): ToolCall {
@@ -186,11 +192,97 @@ TOOLS (allowed actions):
       const normalized = this.normalizeToolCallShape(obj);
       return toolCallSchema.parse(normalized);
     } catch (e) {
+      const repaired = this.tryHeuristicToolCallRepair(raw);
+      if (repaired) {
+        return repaired;
+      }
       const err = e as Error;
       const parseErrorMessage = `${origin}: invalid tool call JSON: ${err.message}`;
       (err as any).rawModelOutput = raw;
       throw err;
     }
+  }
+
+  private tryHeuristicToolCallRepair(raw: string): ToolCall | null {
+    const action = this.pickStringField(raw, 'action');
+    const status = this.pickStringField(raw, 'status') ?? (action ? 'continue' : undefined);
+    if (!status) return null;
+
+    if (status === 'done') {
+      const finalResult = this.pickStringField(raw, 'finalResult');
+      const description =
+        this.pickStringField(raw, 'description') ??
+        finalResult ??
+        'Task finished';
+      try {
+        return toolCallSchema.parse({
+          status: 'done',
+          description,
+          finalResult: finalResult ?? undefined,
+        });
+      } catch {
+        return null;
+      }
+    }
+
+    if (!action) return null;
+    const normalizedAction = this.normalizeActionName(action);
+    const repaired: Record<string, any> = {
+      status: 'continue',
+      action: normalizedAction,
+      description: this.pickStringField(raw, 'description') ?? `Fallback parsed action: ${normalizedAction}`,
+    };
+
+    const value = this.pickStringField(raw, 'value') ?? this.pickStringField(raw, 'url');
+    const selector = this.pickStringField(raw, 'selector');
+    const waitMs = this.pickNumberField(raw, 'waitMs');
+    const extractStrategy = this.pickStringField(raw, 'extractStrategy');
+
+    if (value) repaired.value = value;
+    if (selector) repaired.selector = selector;
+    if (typeof waitMs === 'number') repaired.waitMs = waitMs;
+    if (extractStrategy) repaired.extractStrategy = extractStrategy;
+
+    if (normalizedAction === 'open_url' && !repaired.value) {
+      repaired.value = 'https://hh.ru/';
+    }
+    if (normalizedAction === 'wait' && !repaired.waitMs) {
+      repaired.waitMs = 1000;
+    }
+    if ((normalizedAction === 'click' || normalizedAction === 'type' || normalizedAction === 'extract') && !repaired.selector) {
+      return null;
+    }
+    if (normalizedAction === 'type' && !repaired.value) {
+      return null;
+    }
+
+    try {
+      return toolCallSchema.parse(repaired);
+    } catch {
+      return null;
+    }
+  }
+
+  private pickStringField(text: string, field: string): string | undefined {
+    const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`"${escapedField}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`, 'i');
+    const m = text.match(re);
+    if (!m?.[1]) return undefined;
+    try {
+      return JSON.parse(`"${m[1]}"`);
+    } catch {
+      return m[1];
+    }
+  }
+
+  private pickNumberField(text: string, field: string): number | undefined {
+    const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`"${escapedField}"\\s*:\\s*(\\d+)`, 'i');
+    const m = text.match(re);
+    if (!m?.[1]) return undefined;
+    const v = Number(m[1]);
+    if (!Number.isFinite(v)) return undefined;
+    return Math.floor(v);
   }
 
   private normalizeToolCallShape(obj: any): any {
