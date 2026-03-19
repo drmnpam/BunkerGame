@@ -30,6 +30,15 @@ interface OpenRouterProviderConfig {
   reasoningExclude?: boolean;
 }
 
+interface OpenRouterModelDescriptor {
+  id?: string;
+  name?: string;
+  pricing?: {
+    prompt?: string | number;
+    completion?: string | number;
+  };
+}
+
 export class OpenRouterProvider implements LLMProvider {
   name = 'openrouter';
   private readonly baseUrl: string;
@@ -45,6 +54,8 @@ export class OpenRouterProvider implements LLMProvider {
   private readonly modelBlockedUntil = new Map<string, number>();
   private readonly lowBudgetModeMs: number;
   private lowBudgetModeUntil = 0;
+  private remoteFreeModelsCache: { models: string[]; fetchedAt: number } | null = null;
+  private readonly remoteFreeModelsTtlMs = 10 * 60 * 1000;
 
   constructor(
     private apiKey: string,
@@ -115,7 +126,7 @@ export class OpenRouterProvider implements LLMProvider {
       throw new OpenRouterProviderError('OpenRouter API key is empty', 'api');
     }
 
-    const modelsToTry = this.resolveModelsToTry(request.model);
+    const modelsToTry = await this.resolveModelsToTry(request.model);
     if (!modelsToTry.length) {
       throw new OpenRouterProviderError('No OpenRouter models configured', 'unavailable');
     }
@@ -284,11 +295,13 @@ export class OpenRouterProvider implements LLMProvider {
     return '';
   }
 
-  private resolveModelsToTry(requestedModel?: string): string[] {
+  private async resolveModelsToTry(requestedModel?: string): Promise<string[]> {
     const configured = Array.from(
       new Set(this.availableModels.map((s) => s.trim()).filter(Boolean)),
     );
-    if (!configured.length) return [];
+    const remoteFree = await this.getRemoteFreeModels();
+    const mergedConfigured = Array.from(new Set([...configured, ...remoteFree]));
+    if (!mergedConfigured.length) return [];
 
     const requested = requestedModel?.trim();
     // "auto" (from planner/UI default) means "use configured priority order".
@@ -297,11 +310,11 @@ export class OpenRouterProvider implements LLMProvider {
 
     const now = Date.now();
     const lowBudgetModeActive = now < this.lowBudgetModeUntil;
-    const augmentedPool = this.augmentWithBuiltInFreeModels(configured);
+    const augmentedPool = this.augmentWithBuiltInFreeModels(mergedConfigured);
     const budgetAwarePool = lowBudgetModeActive
       ? this.filterFreeSafeModels(augmentedPool)
       : augmentedPool;
-    const eligibleConfigured = configured.filter((model) => {
+    const eligibleConfigured = mergedConfigured.filter((model) => {
       const blockedUntil = this.modelBlockedUntil.get(model) ?? 0;
       return blockedUntil <= now;
     });
@@ -344,15 +357,26 @@ export class OpenRouterProvider implements LLMProvider {
   }
 
   private prioritizeModels(models: string[]): string[] {
-    return [...models].sort((a, b) => this.modelRank(a) - this.modelRank(b));
+    return [...models].sort((a, b) => this.modelScore(b) - this.modelScore(a));
   }
 
-  private modelRank(model: string): number {
+  private modelScore(model: string): number {
     const m = model.toLowerCase();
-    if (m.endsWith(':free')) return 0;
-    if (m === 'openrouter/auto') return 80;
-    if (m.includes('gpt-4o-mini')) return 70;
-    return 20;
+    if (m === 'openrouter/auto') return -10000;
+    if (!m.endsWith(':free')) return -5000;
+
+    let score = 0;
+    score += this.extractModelSizeScore(m);
+
+    if (m.includes('gpt') || m.includes('claude') || m.includes('gemini')) score += 120;
+    if (m.includes('llama') || m.includes('mistral') || m.includes('qwen')) score += 90;
+    if (m.includes('hermes') || m.includes('nous')) score += 70;
+    if (m.includes('instruct') || m.includes('chat')) score += 25;
+    if (m.includes('coder')) score -= 10;
+    if (m.includes('mini') || m.includes('small')) score -= 20;
+    if (m.includes('3b') || m.includes('4b')) score -= 15;
+
+    return score;
   }
 
   private markModelTemporarilyBlocked(model: string, cooldownMs: number) {
@@ -383,6 +407,55 @@ export class OpenRouterProvider implements LLMProvider {
       if (!merged.includes(candidate)) merged.push(candidate);
     }
     return merged;
+  }
+
+  private extractModelSizeScore(modelId: string): number {
+    const match = modelId.match(/(\d+(?:\.\d+)?)b\b/i);
+    if (!match) return 0;
+    const size = Number(match[1]);
+    if (!Number.isFinite(size)) return 0;
+    return Math.round(size * 10);
+  }
+
+  private async getRemoteFreeModels(): Promise<string[]> {
+    const now = Date.now();
+    if (this.remoteFreeModelsCache && now - this.remoteFreeModelsCache.fetchedAt < this.remoteFreeModelsTtlMs) {
+      return this.remoteFreeModelsCache.models;
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/models`, {
+        method: 'GET',
+        headers: this.buildHeaders(false),
+      });
+      if (!res.ok) return this.remoteFreeModelsCache?.models ?? [];
+      const json = await res.json();
+      const free = this.extractFreeModelIds(json);
+      this.remoteFreeModelsCache = { models: free, fetchedAt: now };
+      return free;
+    } catch {
+      return this.remoteFreeModelsCache?.models ?? [];
+    }
+  }
+
+  private extractFreeModelIds(payload: any): string[] {
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    const out: string[] = [];
+    for (const item of data as OpenRouterModelDescriptor[]) {
+      const id = typeof item?.id === 'string' ? item.id.trim() : '';
+      if (!id) continue;
+      if (id.toLowerCase().endsWith(':free')) {
+        out.push(id);
+        continue;
+      }
+
+      const p = item?.pricing;
+      const promptZero = p && (p.prompt === '0' || p.prompt === 0 || p.prompt === '0.0' || p.prompt === '0.00');
+      const completionZero =
+        p && (p.completion === '0' || p.completion === 0 || p.completion === '0.0' || p.completion === '0.00');
+      if (promptZero && completionZero) out.push(id);
+    }
+    return Array.from(new Set(out));
   }
 
   private buildHeaders(includeContentType: boolean): Record<string, string> {
