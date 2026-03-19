@@ -41,6 +41,7 @@ export class OpenRouterProvider implements LLMProvider {
   private readonly budgetCooldownMs: number;
   private readonly emptyContentCooldownMs: number;
   private readonly rateLimitCooldownMs: number;
+  private readonly notFoundCooldownMs: number;
   private readonly modelBlockedUntil = new Map<string, number>();
   private readonly lowBudgetModeMs: number;
   private lowBudgetModeUntil = 0;
@@ -82,6 +83,7 @@ export class OpenRouterProvider implements LLMProvider {
     this.budgetCooldownMs = 10 * 60 * 1000;
     this.emptyContentCooldownMs = 3 * 60 * 1000;
     this.rateLimitCooldownMs = 60 * 1000;
+    this.notFoundCooldownMs = 24 * 60 * 60 * 1000;
     this.lowBudgetModeMs = 15 * 60 * 1000;
   }
 
@@ -189,6 +191,7 @@ export class OpenRouterProvider implements LLMProvider {
           lower.includes('no such model') ||
           lower.includes('unknown model')
         ) {
+          this.markModelTemporarilyBlocked(model, this.notFoundCooldownMs);
           lastErr = new OpenRouterProviderError(
             `OpenRouter model not found: ${model}.`,
             'model',
@@ -371,8 +374,9 @@ export class OpenRouterProvider implements LLMProvider {
   private augmentWithBuiltInFreeModels(models: string[]): string[] {
     const fallbackFree = [
       'stepfun/step-3.5-flash:free',
-      'deepseek/deepseek-chat-v3.1:free',
-      'qwen/qwen3-coder:free',
+      'qwen/qwen3-4b:free',
+      'google/gemma-3-4b-it:free',
+      'meta-llama/llama-3.2-3b-instruct:free',
     ];
     const merged = [...models];
     for (const candidate of fallbackFree) {

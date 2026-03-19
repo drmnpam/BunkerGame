@@ -331,6 +331,9 @@ export class TaskExecutor {
       m.includes('returned empty content') ||
       m.includes('budget insufficient') ||
       m.includes('rate-limited') ||
+      m.includes('model not found') ||
+      m.includes('no such model') ||
+      m.includes('unknown model') ||
       m.includes('prompt tokens limit exceeded') ||
       m.includes('requires more credits') ||
       m.includes('can only afford')
