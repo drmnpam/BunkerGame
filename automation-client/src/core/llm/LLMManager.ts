@@ -155,6 +155,8 @@ export class LLMManager {
         this.logger(
           `[LLM] attempt ${attempt + 1} failed provider=${provider.name}: ${(e as Error).message}; kind=${kind}; sleep ${delayMs}ms`,
         );
+        // Retrying immediately on unavailable/model/api usually doesn't help and just burns time.
+        if (kind === 'unavailable' || kind === 'model' || kind === 'api') break;
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }

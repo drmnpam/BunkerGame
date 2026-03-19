@@ -124,11 +124,26 @@ export class TaskExecutor {
           this.callbacks.onStepLog(`[PlannerError] ${err?.message ?? String(e)}`);
           lastRawModelOutput = err?.rawModelOutput ?? lastRawModelOutput;
           lastParseErrorMessage = err?.message ?? String(e);
+          if (
+            this.isLikelyToolFormatError(lastParseErrorMessage) &&
+            this.isLikelyTruncatedToolCall(lastRawModelOutput)
+          ) {
+            const fallback = this.makeFallbackToolCall(stepIndex, lastErrorMessage);
+            this.callbacks.onStepLog(
+              `[Planner] fallback tool call injected after truncated model output: ${fallback.action}`,
+            );
+            toolCall = fallback as ToolCall;
+            break;
+          }
+
           if (toolCallRetry >= this.maxToolCallRetriesPerStep) {
-            if (this.isLikelyToolFormatError(lastParseErrorMessage)) {
+            if (
+              this.isLikelyToolFormatError(lastParseErrorMessage) ||
+              this.isLikelyProviderTemporaryFailure(lastParseErrorMessage)
+            ) {
               const fallback = this.makeFallbackToolCall(stepIndex, lastErrorMessage);
               this.callbacks.onStepLog(
-                `[Planner] fallback tool call injected after format failures: ${fallback.action}`,
+                `[Planner] fallback tool call injected after planner failures: ${fallback.action}`,
               );
               toolCall = fallback as ToolCall;
               break;
@@ -291,6 +306,24 @@ export class TaskExecutor {
       m.includes('invalid input') ||
       m.includes('zod')
     );
+  }
+
+  private isLikelyProviderTemporaryFailure(message: string) {
+    const m = message.toLowerCase();
+    return (
+      m.includes('returned empty content') ||
+      m.includes('budget insufficient') ||
+      m.includes('rate-limited') ||
+      m.includes('prompt tokens limit exceeded') ||
+      m.includes('requires more credits') ||
+      m.includes('can only afford')
+    );
+  }
+
+  private isLikelyTruncatedToolCall(rawOutput: string) {
+    const s = (rawOutput ?? '').trim();
+    if (!s) return false;
+    return s.startsWith('{') && !s.endsWith('}');
   }
 
   private makeFallbackToolCall(stepIndex: number, lastErrorMessage?: string): BrowserAction {

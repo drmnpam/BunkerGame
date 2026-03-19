@@ -39,7 +39,8 @@ export class OpenRouterProvider implements LLMProvider {
   private readonly reasoningEffort: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none';
   private readonly reasoningExclude: boolean;
   private readonly budgetCooldownMs: number;
-  private readonly budgetBlockedUntil = new Map<string, number>();
+  private readonly emptyContentCooldownMs: number;
+  private readonly modelBlockedUntil = new Map<string, number>();
 
   constructor(
     private apiKey: string,
@@ -76,6 +77,7 @@ export class OpenRouterProvider implements LLMProvider {
       config?.reasoningExclude ??
       (envExclude === undefined ? true : envExclude === '1' || envExclude === 'true');
     this.budgetCooldownMs = 10 * 60 * 1000;
+    this.emptyContentCooldownMs = 3 * 60 * 1000;
   }
 
   async isAvailable(): Promise<boolean> {
@@ -199,7 +201,7 @@ export class OpenRouterProvider implements LLMProvider {
         }
 
         if (res.status === 402 && this.isBudgetError(lower)) {
-          this.markModelBudgetBlocked(model);
+          this.markModelTemporarilyBlocked(model, this.budgetCooldownMs);
           lastErr = new OpenRouterProviderError(
             `OpenRouter budget insufficient for model ${model}.`,
             'unavailable',
@@ -230,6 +232,7 @@ export class OpenRouterProvider implements LLMProvider {
       if (!content) {
         // Some reasoning-heavy models occasionally return only reasoning with empty content.
         // Treat this as temporary provider/model unavailability and try next configured model.
+        this.markModelTemporarilyBlocked(model, this.emptyContentCooldownMs);
         lastErr = new OpenRouterProviderError(
           'OpenRouter returned empty content',
           'unavailable',
@@ -283,7 +286,7 @@ export class OpenRouterProvider implements LLMProvider {
 
     const now = Date.now();
     const eligibleConfigured = configured.filter((model) => {
-      const blockedUntil = this.budgetBlockedUntil.get(model) ?? 0;
+      const blockedUntil = this.modelBlockedUntil.get(model) ?? 0;
       return blockedUntil <= now;
     });
     const basePool = eligibleConfigured.length ? eligibleConfigured : configured;
@@ -328,8 +331,8 @@ export class OpenRouterProvider implements LLMProvider {
     return 20;
   }
 
-  private markModelBudgetBlocked(model: string) {
-    this.budgetBlockedUntil.set(model, Date.now() + this.budgetCooldownMs);
+  private markModelTemporarilyBlocked(model: string, cooldownMs: number) {
+    this.modelBlockedUntil.set(model, Date.now() + cooldownMs);
   }
 
   private buildHeaders(includeContentType: boolean): Record<string, string> {
