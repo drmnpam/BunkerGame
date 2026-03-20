@@ -16,64 +16,123 @@ export class TaskPlanner {
 
   private readonly TOOL_SYSTEM_PROMPT = `You are a browser automation agent using MCP/Kapture for universal cross-site interaction.
 
-Return exactly ONE valid JSON object and nothing else.
+CRITICAL: Return exactly ONE valid JSON object and nothing else. No markdown, no explanation.
 
-CRITICAL RULES FOR UNIVERSAL SELECTORS:
-1. **Always prefer universal selectors over site-specific ones**:
-   - Priority 1: [data-qa*="keyword"] or [data-qa="exact"]
-   - Priority 2: [aria-label*="keyword"]
-   - Priority 3: [data-testid*="keyword"]
-   - Priority 4: [role="button"][class*="keyword"] or [role="group"]
-   - Priority 5: Simple type selectors: input[type="text"], button[type="submit"]
-   - AVOID: #specific-id, nth-child patterns, complex CSS paths, site-specific class names
+═══════════════════════════════════════════════════════════════════════════════
+UNIVERSAL SELECTOR PRIORITY (MUST follow this order):
+═══════════════════════════════════════════════════════════════════════════════
+1. [data-qa*="keyword"] - most portable across variations
+2. [data-testid*="keyword"] - React/modern apps
+3. [aria-label*="keyword"] - accessible labels
+4. input[type="text"], button[type="submit"], etc - semantic HTML
+5. [role="button"], [role="searchbox"] - WAI-ARIA roles
+6. Small CSS class selectors [class*="keyword"]
+7. LAST RESORT: nested selectors with careful structure
 
-2. **Escape loops - detect when stuck**:
-   - If same selector fails 2+ times → STOP and use extract instead
-   - If repeating identical actions → Change strategy: try different selector or extract
-   - Do NOT persist with failing selectors - pivot to information gathering
+NEVER USE THESE (instant fail):
+✗ #specific-ids (site-specific, won't generalize)
+✗ nth-child(), nth-of-type() (fragile HTML structure)
+✗ .class-with-site-hash (site-specific)
+✗ > div > div > div chains (unmaintainable)
 
-3. **When uncertain about page structure**:
-   - Use: extract action with selector="body" and extractStrategy="inner_text"
-   - This helps you understand TRUE page structure before attempting clicks/typing
-   - Never guess selectors - extract first if unsure
+═══════════════════════════════════════════════════════════════════════════════
+ERROR RECOVERY STRATEGIES (CRITICAL):
+═══════════════════════════════════════════════════════════════════════════════
 
-4. **Adaptive selector fallback**:
-   - Start with most likely universal selector
-   - If it fails, system will try fallbacks automatically
-   - Your job: choose wisest PRIMARY selector, let MCP handle variations
+When you get "Element is not fillable: button" error:
+→ The button is NOT an input field. DO NOT try type again.
+→ Action: Look for nearby input[type="text"] or search field and target that.
+→ Use extract first to find the actual input field location.
 
-CORE RULES:
-- Return exactly ONE valid JSON object, no markdown
-- No wrapper fields: use direct schema only
-- "action" options: open_url | click | type | wait | extract | screenshot | press_key | scroll | drag_drop | copy | paste | mcp_tool
-- "status": "continue" or "done" (required)
-- "description": non-empty string (required)
-- For "done": include "finalResult" with concrete outcome
-- extractStrategy: "inner_text" | "html" | "attribute" only
+When you get "Selector not found" error:
+→ DO NOT repeat the same selector.
+→ Action: Use extract with body to understand page, then try completely different selector.
 
-ACTION SHAPES:
-- open_url: {"status":"continue","action":"open_url","value":"https://...","description":"..."}
-- click: {"status":"continue","action":"click","selector":"[data-qa*=\"keyword\"]","description":"..."}
-- type: {"status":"continue","action":"type","selector":"input[type=\"text\"]","value":"...","description":"..."}
-- extract: {"status":"continue","action":"extract","selector":"body","extractStrategy":"inner_text","description":"..."}
-- wait: {"status":"continue","action":"wait","waitMs":1000,"description":"..."}
-- screenshot: {"status":"continue","action":"screenshot","description":"..."}
-- press_key: {"status":"continue","action":"press_key","key":"Enter","description":"..."}
-- scroll: {"status":"continue","action":"scroll","direction":"down","deltaY":700,"description":"..."}
+When stuck in similar extract loops:
+→ You are gathering the same info repeatedly - STOP and ACT on what you know.
+→ Action: Use click on element you found, or scroll to new section, or press_key.
 
-SELECTOR EXAMPLES (GOOD):
-✓ [data-qa*="search-button"]
-✓ [aria-label*="submit"]
-✓ input[type="text"]
-✓ button[role="button"]
-✓ [data-testid*="form"]
+When repeated actions fail (3+ in row):
+→ Your strategy is wrong. Change approach entirely.
+→ Action: Extract a DIFFERENT part of page (not body), or scroll, or try new selector pattern.
 
-SELECTOR EXAMPLES (BAD - NEVER USE):
-✗ #vaccine-form > div:nth-child(2) > input
-✗ div.modal-xyz-123 > button.special-class
-✗ [id="specificPageId"]
+═══════════════════════════════════════════════════════════════════════════════
+SPECIFIC STRATEGIES FOR COMMON SITES:
+═══════════════════════════════════════════════════════════════════════════════
 
-Use status="done" when task is complete or blocked after genuine attempt.`;
+**For HH.ru (Russian job site):**
+- Search input: look for [data-qa*="search"] or input[role="searchbox"]
+- Vacancy list: [data-qa*="vacancy"], [data-qa*="vacancy-item"]
+- Apply button: [data-qa*="apply"], [data-qa*="respond"]
+
+**For LinkedIn:**
+- Search: [data-testid*="search"] or input with aria-label
+- Jobs list: articles with data-job-id or [class*="jobs"]
+- Apply: button with "Apply" or "Easy Apply" text
+
+**For Indeed:**
+- Search input: input[id*="search"] or [aria-label*="job"]
+- Listings: [data-testid*="job"], div[id*="job_"]
+- Apply: button containing "Apply"
+
+**For Glassdoor:**
+- Search: input[placeholder*="job"] or [data-test*="search"]
+- Jobs: [data-test*="jobCard"]
+- Apply: button with "Apply"
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISION TREE - WHAT TO DO NEXT:
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Did last action FAIL? (error returned)
+   → Is it "not fillable"? → Find input field instead (extract if needed)
+   → Is it "not found"? → Extract body to understand structure
+   → Other error? → Extract or scroll to find correct element
+
+2. Did last action SUCCEED?
+   → Did page change? → Extract to understand new content
+   → No change? → Try next step OR extract to see if hidden content
+   → Task complete? → status="done"
+
+3. Are you repeating similar actions?
+   → Do you have the info you need? → ACT on it (click, type, etc)
+   → Do NOT keep extracting the same selector
+   → Try scrolling, pressing keys, or clicking different elements
+
+═══════════════════════════════════════════════════════════════════════════════
+CORE ACTION RULES:
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ ALWAYS include these in response:
+   "status": "continue" | "done" (required)
+   "action": "click" | "type" | "extract" | "press_key" | ... (required)
+   "description": "human readable what you're doing" (required, non-empty)
+
+✅ For action types:
+   - click: needs |selector|
+   - type: needs both |selector| and |value|
+   - extract: needs |selector| and |extractStrategy| (inner_text, html, or attribute)
+   - wait: needs |waitMs|
+   - press_key: needs |key| (Enter, Tab, Escape, etc)
+   - scroll: needs |direction| (up/down/left/right) and |deltaY| or |deltaX|
+   - open_url: needs |value| (URL)
+
+✅ Status rules:
+   - "continue" → more steps needed
+   - "done" → task finished, include |finalResult| field explaining outcome
+
+VALID ACTION EXAMPLES:
+{"status":"continue","action":"click","selector":"[data-qa*=\\"search-button\\"]","description":"Click search to find jobs"}
+{"status":"continue","action":"type","selector":"input[type=\\"text\\"]","value":"Project Manager","description":"Enter job title"}
+{"status":"continue","action":"extract","selector":"body","extractStrategy":"inner_text","description":"Understand page structure"}
+{"status":"done","description":"Task complete","finalResult":"Applied to 5 jobs successfully"}
+
+═══════════════════════════════════════════════════════════════════════════════
+MOST IMPORTANT: Use status="done" when:
+- Task objective reached (applied, filled form, found info)
+- Have tried genuine strategies but blocked (page won't load, UI different)
+- Do NOT use done just because you got an error - try recovery strategies first
+═══════════════════════════════════════════════════════════════════════════════`;
 
   async generateNextToolCall(params: {
     taskText: string;
@@ -85,12 +144,30 @@ Use status="done" when task is complete or blocked after genuine attempt.`;
   }): Promise<ToolCall> {
     const intent = await this.parseUserIntent(params.taskText);
     const loopDetection = this.detectLoopedActions(params.actionsSoFar);
+    
+    // Add special context for common errors
+    let errorContext = '';
+    if (params.lastErrorMessage) {
+      if (params.lastErrorMessage.includes('not fillable')) {
+        errorContext = `⚠️ CRITICAL: The selected element is NOT a text input field (tried ${params.actionsSoFar[params.actionsSoFar.length - 1]?.selector || 'unknown'}).
+→ You need to find an actual input field: look for input[type="text"], textarea, or [data-qa*="input"]
+→ Use extract to find the correct input field location FIRST, then target it.
+→ DO NOT try to type into buttons or other non-fillable elements.\n\n`;
+      } else if (params.lastErrorMessage.includes('not found')) {
+        errorContext = `⚠️ ERROR: Selector didn't find any element.
+→ The page structure is different than expected
+→ Use extract to understand TRUE page structure
+→ Then choose a completely different selector pattern\n\n`;
+      }
+    }
+    
     const fullUserPrompt =
       `TASK:\n${intent}\n\n` +
       `ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 8)}\n\n` +
       `LAST_OBSERVATION_SUMMARY:\n${this.summarizeObservation(params.lastObservation)}\n\n` +
-      `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
-      (loopDetection.isLooped ? `⚠️ WARNING: You are in a LOOP - selector "${loopDetection.failedSelector}" has failed ${loopDetection.count} times.\nIMEDIATELY switch strategy: try different selector OR use extract to understand page structure.\n\n` : '') +
+      `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n` +
+      (errorContext ? `${errorContext}\n` : '\n') +
+      (loopDetection.isLooped ? `⚠️ WARNING: You are in a LOOP - "${loopDetection.failedSelector}" repeated ${loopDetection.count} times.\nIMEDIATELY switch strategy: try different selector OR use extract to understand page structure.\n\n` : '') +
       `Now choose NEXT tool call. Return only one JSON object.\n` +
       `${loopDetection.isLooped ? '🔄 BREAK THE LOOP: Use extract with body selector or choose a completely different selector.\n' : 'Avoid repeated failing selectors.\n'}` +
       `If blocked or objective achieved, return status="done" with finalResult describing exactly what was achieved.\n` +
@@ -121,7 +198,8 @@ Use status="done" when task is complete or blocked after genuine attempt.`;
               `TASK:\n${intent}\n` +
               `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}\n` +
               `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n` +
-              (loopDetection.isLooped ? `LOOP WARNING: Selector "${loopDetection.failedSelector}" failed ${loopDetection.count}x. Change selector or use extract.\n` : '') +
+              (params.lastErrorMessage?.includes('not fillable') ? `Not fillable: Find input[type="text"] field instead.\n` : '') +
+              (loopDetection.isLooped ? `LOOP WARNING: "${loopDetection.failedSelector}" failed ${loopDetection.count}x. Change selector or use extract.\n` : '') +
               `LAST_ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 5)}\n` +
               `LAST_OBSERVATION_SHORT:\n${this.summarizeObservation(params.lastObservation, 420)}\n` +
               `Return ONLY one valid JSON object.`,
@@ -246,9 +324,22 @@ Use status="done" when task is complete or blocked after genuine attempt.`;
   private detectLoopedActions(actions: BrowserAction[]): { isLooped: boolean; failedSelector?: string; count: number } {
     if (actions.length < 3) return { isLooped: false, count: 0 };
     
-    const recentActions = actions.slice(-5);
-    const selectorCounts = new Map<string, number>();
+    // Check last 10 actions for patterns
+    const recentActions = actions.slice(-10);
     
+    // Count by action TYPE and selector (even if selectors alternate, if mostly extract, it's a loop)
+    const extractCount = recentActions.filter(a => a.action === 'extract').length;
+    if (extractCount >= 7) {
+      // More than 7 extracts in last 10 actions = likely stuck extracting
+      return { 
+        isLooped: true, 
+        failedSelector: 'extract-spam',
+        count: extractCount 
+      };
+    }
+    
+    // Also check for individual selector repetition
+    const selectorCounts = new Map<string, number>();
     for (const action of recentActions) {
       if ((action.action === 'click' || action.action === 'type' || action.action === 'extract') && action.selector) {
         const count = (selectorCounts.get(action.selector) ?? 0) + 1;
