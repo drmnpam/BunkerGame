@@ -128,10 +128,19 @@ VALID ACTION EXAMPLES:
 {"status":"done","description":"Task complete","finalResult":"Applied to 5 jobs successfully"}
 
 ═══════════════════════════════════════════════════════════════════════════════
-MOST IMPORTANT: Use status="done" when:
-- Task objective reached (applied, filled form, found info)
-- Have tried genuine strategies but blocked (page won't load, UI different)
-- Do NOT use done just because you got an error - try recovery strategies first
+WHEN TO USE status="done" (IMPORTANT):
+═══════════════════════════════════════════════════════════════════════════════
+
+Use status="done" in these cases:
+- Task objective achieved or mostly achieved (forms filled, jobs applied to, info found)
+- Page blocked by authentication, CAPTCHA, or network error (can't proceed)
+- Same error repeated 3+ times despite trying different selectors
+- Extracted page content shows task is impossible (wrong site, no matching elements)
+- Stuck in loop with no forward progress visible
+
+DO NOT use status="done" just because of one failed action.
+DO try: new selector patterns, keyboard shortcuts, scrolling, waiting.
+
 ═══════════════════════════════════════════════════════════════════════════════`;
 
   async generateNextToolCall(params: {
@@ -149,15 +158,23 @@ MOST IMPORTANT: Use status="done" when:
     let errorContext = '';
     if (params.lastErrorMessage) {
       if (params.lastErrorMessage.includes('not fillable')) {
-        errorContext = `⚠️ CRITICAL: The selected element is NOT a text input field (tried ${params.actionsSoFar[params.actionsSoFar.length - 1]?.selector || 'unknown'}).
-→ You need to find an actual input field: look for input[type="text"], textarea, or [data-qa*="input"]
-→ Use extract to find the correct input field location FIRST, then target it.
-→ DO NOT try to type into buttons or other non-fillable elements.\n\n`;
+        errorContext = `⚠️ CRITICAL ERROR: Element is NOT fillable (last tried: ${params.actionsSoFar[params.actionsSoFar.length - 1]?.selector || 'unknown'})
+→ The selector found a button, link, or div - NOT an input field
+→ IMMEDIATELY search for actual text input: input[type="text"], textarea, [role="searchbox"], [aria-label*="search"]
+→ OR click on an element near the unfillable one to reveal hidden input
+→ DO NOT try same selector again - it will fail again!\n\n`;
       } else if (params.lastErrorMessage.includes('not found')) {
         errorContext = `⚠️ ERROR: Selector didn't find any element.
-→ The page structure is different than expected
-→ Use extract to understand TRUE page structure
-→ Then choose a completely different selector pattern\n\n`;
+→ The selector pattern doesn't match anything on this page
+→ Use extract with HTML strategy to see ALL elements
+→ Try completely different attribute: look for aria-label, role, class patterns
+→ DO NOT use same selector again\n\n`;
+      } else if (params.lastErrorMessage.includes('Loop detected') || params.lastErrorMessage.includes('loop')) {
+        errorContext = `⚠️ LOOP DETECTED: You're repeating actions that don't advance
+→ If extract body doesn't change, use extract with HTML strategy instead
+→ If same selector fails: click different elements or scroll
+→ Try NEW strategies: keyboard shortcuts (Tab, Enter), scroll up/down, look for alternative elements
+→ If stuck 3+ steps, consider task impossible and use status="done"\n\n`;
       }
     }
     
@@ -198,11 +215,10 @@ MOST IMPORTANT: Use status="done" when:
               `TASK:\n${intent}\n` +
               `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}\n` +
               `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n` +
-              (params.lastErrorMessage?.includes('not fillable') ? `Not fillable: Find input[type="text"] field instead.\n` : '') +
-              (loopDetection.isLooped ? `LOOP WARNING: "${loopDetection.failedSelector}" failed ${loopDetection.count}x. Change selector or use extract.\n` : '') +
-              `LAST_ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 5)}\n` +
-              `LAST_OBSERVATION_SHORT:\n${this.summarizeObservation(params.lastObservation, 420)}\n` +
-              `Return ONLY one valid JSON object.`,
+              (params.lastErrorMessage?.includes('not fillable') ? `CRITICAL: Not fillable element. Switch to: input[type="text"], [role="searchbox"], textarea.\n` : '') +
+              (loopDetection.isLooped ? `URGENT LOOP: "${loopDetection.failedSelector}" repeated ${loopDetection.count}x - try DIFFERENT approach NOW.\n` : '') +
+              `LAST_ACTIONS:\n${this.actionsTail(params.actionsSoFar, 4)}\n` +
+              `Return JSON only.`,
           },
         ],
       });
@@ -322,15 +338,15 @@ MOST IMPORTANT: Use status="done" when:
   }
 
   private detectLoopedActions(actions: BrowserAction[]): { isLooped: boolean; failedSelector?: string; count: number } {
-    if (actions.length < 3) return { isLooped: false, count: 0 };
+    if (actions.length < 2) return { isLooped: false, count: 0 };
     
-    // Check last 10 actions for patterns
-    const recentActions = actions.slice(-10);
+    // Check last 15 actions for patterns
+    const recentActions = actions.slice(-15);
     
-    // Count by action TYPE and selector (even if selectors alternate, if mostly extract, it's a loop)
+    // Count by action TYPE - detect extract spam earlier
     const extractCount = recentActions.filter(a => a.action === 'extract').length;
-    if (extractCount >= 7) {
-      // More than 7 extracts in last 10 actions = likely stuck extracting
+    if (extractCount >= 5) {
+      // 5+ extracts in last 15 actions = likely stuck extracting
       return { 
         isLooped: true, 
         failedSelector: 'extract-spam',
@@ -338,7 +354,7 @@ MOST IMPORTANT: Use status="done" when:
       };
     }
     
-    // Also check for individual selector repetition
+    // Also check for individual selector repetition (more aggressive: 2+ instead of 3+)
     const selectorCounts = new Map<string, number>();
     for (const action of recentActions) {
       if ((action.action === 'click' || action.action === 'type' || action.action === 'extract') && action.selector) {
@@ -348,7 +364,12 @@ MOST IMPORTANT: Use status="done" when:
     }
     
     for (const [selector, count] of selectorCounts) {
-      if (count >= 3) {
+      if (selector === 'body' && count >= 3) {
+        // Even more aggressive for body extracts
+        return { isLooped: true, failedSelector: selector, count };
+      }
+      if (count >= 2) {
+        // 2 repetitions of any selector (except body) = loop
         return { isLooped: true, failedSelector: selector, count };
       }
     }
