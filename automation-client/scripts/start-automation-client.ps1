@@ -109,7 +109,7 @@ $mcpLog = Join-Path $appDir "launcher-mcp-$stamp.log"
 $mcpErr = Join-Path $appDir "launcher-mcp-$stamp.err.log"
 
 if (Test-PortListening -Port $mcpPort) {
-  Write-Host "[launcher] ✓ MCP already listening on :$mcpPort"
+  Write-Host "[launcher] OK MCP already listening on :$mcpPort"
 } else {
   Write-Host "[launcher] MCP not listening on :$mcpPort, starting..."
   $customMcpCmd = Get-EnvVarValue -Key 'KAPTURE_MCP_START_CMD' -Files $envFiles
@@ -121,8 +121,7 @@ if (Test-PortListening -Port $mcpPort) {
     $commands = @(
       "npx -y kapture-mcp bridge",
       "npx -y kapture-mcp server",
-      "kapture-mcp --transport websocket --port $mcpPort",
-      "kapture mcp --transport websocket --port $mcpPort"
+      "kapture-mcp --transport websocket --port $mcpPort"
     )
   }
 
@@ -131,43 +130,25 @@ if (Test-PortListening -Port $mcpPort) {
     Write-Host "[launcher] Trying MCP: $cmd"
     $mcpProcess = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', "$cmd 1> `"$mcpLog`" 2> `"$mcpErr`"" -WorkingDirectory $appDir -WindowStyle Hidden -PassThru
 
-    # Wait longer for MCP to start (up to 30 seconds)
+    # Wait for MCP (up to 30 seconds)
     for ($i = 0; $i -lt 60; $i++) {
       Start-Sleep -Milliseconds 500
       if (Test-PortListening -Port $mcpPort) {
-        Write-Host "[launcher] ✓ MCP started successfully on :$mcpPort (PID=$($mcpProcess.Id))"
+        Write-Host "[launcher] OK MCP started on :$mcpPort"
         $started = $true
         break
       }
     }
     if ($started) { 
-      # Log successful startup to file for debugging
-      Add-Content -Path $mcpLog -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - MCP process started with PID=$($mcpProcess.Id)"
       break 
-    }
-    
-    # Check if process died quickly
-    if ($mcpProcess.HasExited) {
-      Write-Host "[launcher] MCP process exited quickly (check logs)"
     }
   }
 
   if (-not $started) {
-    Write-Host "[launcher] ✗ MCP auto-start failed after all attempts"
-    Write-Host "[launcher] Check MCP logs at:"
+    Write-Host "[launcher] FAIL MCP auto-start failed"
+    Write-Host "[launcher] Check logs:"
     Write-Host "  $mcpLog"
     Write-Host "  $mcpErr"
-    Write-Host "[launcher] You can also try manually: $([string]$commands[0])"
-    Write-Host ""
-    # Show log content if available
-    if (Test-Path $mcpLog) {
-      Write-Host "[launcher] MCP log content:"
-      Get-Content -Path $mcpLog | ForEach-Object { Write-Host "  $_" }
-    }
-    if (Test-Path $mcpErr) {
-      Write-Host "[launcher] MCP error log content:"
-      Get-Content -Path $mcpErr | ForEach-Object { Write-Host "  $_" }
-    }
   }
 }
 
@@ -201,19 +182,19 @@ if ($existing) {
 $log = Join-Path $appDir "launcher-dev-$stamp.log"
 $err = Join-Path $appDir "launcher-dev-$stamp.err.log"
 
-Write-Host "[launcher] starting dev server..."
+Write-Host "[launcher] Starting dev server..."
 Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', "npm run dev -- --host 127.0.0.1 --port 5180 1> `"$log`" 2> `"$err`"" -WorkingDirectory $appDir -WindowStyle Hidden | Out-Null
 
-Write-Host "[launcher] waiting for dev server to start..."
+Write-Host "[launcher] Waiting for dev server..."
 Start-Sleep -Seconds 3
 
 Write-Host ""
-Write-Host "╔════════════════════════════════════════════════════════════╗"
-Write-Host "║  ✓ Kapture Automation Client Starting                     ║"
-Write-Host "║  ✓ MCP Bridge:   listening on :$mcpPort"
-Write-Host "║  ✓ Dev Server:   http://127.0.0.1:5180                    ║"
-Write-Host "║  ✓ Browser:      Opening...                              ║"
-Write-Host "╚════════════════════════════════════════════════════════════╝"
+Write-Host "===================================================="
+Write-Host "  OK Kapture Automation Client Started"
+Write-Host "  - MCP Bridge:  :$mcpPort"
+Write-Host "  - Dev Server:  http://127.0.0.1:5180"
+Write-Host "  - Browser:     Opening..."
+Write-Host "===================================================="
 Write-Host ""
 
 Start-Process 'http://127.0.0.1:5180' -ErrorAction SilentlyContinue | Out-Null
@@ -223,9 +204,5 @@ Write-Host "[launcher] Server logs:"
 Write-Host "  Dev:  $log"
 Write-Host "  MCP:  $mcpLog"
 Write-Host ""
-Write-Host "[launcher] Automation Client is ready!"
-Write-Host "[launcher] → Open your browser extension in the target page"
-Write-Host "[launcher] → Fill in the form above and run the task"
-Write-Host ""
-Write-Host "=== This window can remain open to see logs, or you can close it. ==="
+Write-Host "[launcher] Ready! Open browser extension to start."
 Write-Host ""
