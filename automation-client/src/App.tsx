@@ -14,6 +14,7 @@ import { StateManager } from './core/state/StateManager';
 import { TaskExecutionCheckpoint, TaskExecutor } from './core/execution/TaskExecutor';
 import { BrowserAction } from './core/execution/ActionTypes';
 import { TaskHistoryEntry, TaskStatus } from './core/state/types';
+import { OllamaControl } from './core/ollama/ollamaControl';
 
 type ProviderName = 'gemini' | 'openrouter' | 'openai' | 'claude' | 'deepseek' | 'ollama';
 
@@ -33,6 +34,11 @@ export const App: React.FC = () => {
   const [resumeCheckpoint, setResumeCheckpoint] = useState<TaskExecutionCheckpoint | null>(null);
   const [mcpDisconnected, setMcpDisconnected] = useState(false);
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
+  const [ollamaStarting, setOllamaStarting] = useState(false);
+  const [showOllamaDialog, setShowOllamaDialog] = useState(false);
+  const [ollamaMessage, setOllamaMessage] = useState('');
+
+  const ollamaControl = useMemo(() => new OllamaControl(), []);
 
   const appendLog = (msg: string) => {
     setLog((prev) => [...prev, `${new Date().toLocaleTimeString()} ${msg}`]);
@@ -72,6 +78,23 @@ export const App: React.FC = () => {
     };
     check();
   }, [provider, ollamaBaseUrl]);
+
+  const handleOllamaStart = async () => {
+    setOllamaStarting(true);
+    setOllamaMessage('');
+    const result = await ollamaControl.startOllama();
+    setOllamaMessage(result.message);
+    
+    if (result.success) {
+      // Wait and re-check availability
+      await new Promise((r) => setTimeout(r, 2000));
+      const p = new OllamaProvider(ollamaBaseUrl);
+      const ok = await p.isAvailable();
+      setOllamaAvailable(ok);
+    }
+    
+    setOllamaStarting(false);
+  };
 
   const handlePauseToggle = () => {
     if (!canPauseToggle) return;
@@ -242,6 +265,17 @@ export const App: React.FC = () => {
             {provider === 'ollama' ? (
               <div className="info-text">
                 Ollama endpoint: <strong>{ollamaBaseUrl}</strong> (set via <code>VITE_OLLAMA_URL</code>)
+                {ollamaAvailable === false && (
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setShowOllamaDialog(true)}
+                      disabled={ollamaStarting}
+                    >
+                      {ollamaStarting ? 'Starting...' : '🚀 Start Ollama'}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>
@@ -318,6 +352,54 @@ export const App: React.FC = () => {
             ))}
           </div>
         </section>
+
+        {showOllamaDialog && (
+          <div className="modal-overlay" onClick={() => !ollamaStarting && setShowOllamaDialog(false)}>
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Start Ollama Server</h2>
+                <button
+                  className="modal-close"
+                  onClick={() => setShowOllamaDialog(false)}
+                  disabled={ollamaStarting}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="modal-body">
+                <p>
+                  This will start the Ollama server on <code>{ollamaBaseUrl}</code>.
+                </p>
+                <p>Make sure Ollama is installed and available in your system PATH.</p>
+                {ollamaMessage && (
+                  <div
+                    className={`message ${
+                      ollamaMessage.includes('started') || ollamaMessage.includes('PID') ? 'success' : 'error'
+                    }`}
+                  >
+                    {ollamaMessage}
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowOllamaDialog(false)}
+                  disabled={ollamaStarting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleOllamaStart}
+                  disabled={ollamaStarting}
+                >
+                  {ollamaStarting ? 'Starting...' : 'Start'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -351,3 +351,122 @@ body {
   }
 }
 
+/* Modal Dialog */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  backdrop-filter: blur(4px);
+}
+
+.modal-dialog {
+  background: var(--card-strong);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--ink-soft);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.modal-close:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-0);
+}
+
+.modal-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-body {
+  padding: 16px 20px;
+  flex: 1;
+  overflow: auto;
+}
+
+.modal-body p {
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+  color: var(--ink-1);
+}
+
+.modal-body code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Pro Text', 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.message {
+  padding: 12px;
+  border-radius: 8px;
+  margin: 12px 0 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.message.success {
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(15, 118, 110, 0.2);
+}
+
+.message.error {
+  background: rgba(185, 28, 28, 0.1);
+  color: var(--error);
+  border: 1px solid rgba(185, 28, 28, 0.2);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.modal-footer .btn {
+  min-width: 100px;
+}
