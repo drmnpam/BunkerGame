@@ -19,6 +19,12 @@ export const browserActionSchema: z.ZodType<BrowserAction> = z
       z.literal('wait'),
       z.literal('extract'),
       z.literal('screenshot'),
+      z.literal('press_key'),
+      z.literal('scroll'),
+      z.literal('drag_drop'),
+      z.literal('copy'),
+      z.literal('paste'),
+      z.literal('mcp_tool'),
     ]),
     selector: z.string().optional(),
     value: z.string().optional(),
@@ -27,6 +33,14 @@ export const browserActionSchema: z.ZodType<BrowserAction> = z
     description: z.string(),
     extractStrategy: extractStrategySchema as any,
     attributeName: z.string().optional(),
+    key: z.string().optional(),
+    sourceSelector: z.string().optional(),
+    targetSelector: z.string().optional(),
+    deltaX: z.number().optional(),
+    deltaY: z.number().optional(),
+    direction: z.union([z.literal('up'), z.literal('down'), z.literal('left'), z.literal('right')]).optional(),
+    toolName: z.string().optional(),
+    toolArgs: z.record(z.string(), z.any()).optional(),
   })
   .superRefine((val, ctx) => {
     const hasUrl = typeof val.url === 'string' && val.url.trim().length > 0;
@@ -85,6 +99,53 @@ export const browserActionSchema: z.ZodType<BrowserAction> = z
           code: z.ZodIssueCode.custom,
           path: ['selector'],
           message: 'extract requires selector',
+        });
+      }
+    }
+
+    if (val.action === 'press_key') {
+      if (!val.key || val.key.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['key'],
+          message: 'press_key requires key',
+        });
+      }
+    }
+
+    if (val.action === 'drag_drop') {
+      if (!val.sourceSelector) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sourceSelector'],
+          message: 'drag_drop requires sourceSelector',
+        });
+      }
+      if (!val.targetSelector) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['targetSelector'],
+          message: 'drag_drop requires targetSelector',
+        });
+      }
+    }
+
+    if (val.action === 'paste') {
+      if (!val.selector) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['selector'],
+          message: 'paste requires selector',
+        });
+      }
+    }
+
+    if (val.action === 'mcp_tool') {
+      if (!val.toolName || val.toolName.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['toolName'],
+          message: 'mcp_tool requires toolName',
         });
       }
     }

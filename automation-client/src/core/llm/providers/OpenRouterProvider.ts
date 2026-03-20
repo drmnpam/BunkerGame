@@ -57,6 +57,8 @@ export class OpenRouterProvider implements LLMProvider {
   private lowBudgetModeUntil = 0;
   private remoteFreeModelsCache: { models: string[]; fetchedAt: number } | null = null;
   private readonly remoteFreeModelsTtlMs = 10 * 60 * 1000;
+  private readonly maxModelsToTryPerCall = 12;
+  private readonly singleModelRequestTimeoutMs = 18_000;
 
   constructor(
     private apiKey: string,
@@ -139,12 +141,24 @@ export class OpenRouterProvider implements LLMProvider {
       let res: Response | null = null;
       let text = '';
       let maxTokens = Math.max(16, request.maxTokens ?? 320);
+      const sizeB = this.extractModelSizeB(model);
+      // Large models can be "free", but too slow for tool-call planning.
+      // Clamp generation budget to help avoid LLMManager's 30s timeout.
+      if (sizeB != null) {
+        if (sizeB >= 70) maxTokens = Math.min(maxTokens, 80);
+        else if (sizeB >= 40) maxTokens = Math.min(maxTokens, 110);
+        else if (sizeB >= 20) maxTokens = Math.min(maxTokens, 140);
+      }
+      maxTokens = Math.min(maxTokens, 180);
 
       for (let budgetAttempt = 0; budgetAttempt < 3; budgetAttempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.singleModelRequestTimeoutMs);
         try {
           res = await fetch(`${this.baseUrl}/chat/completions`, {
             method: 'POST',
             headers: this.buildHeaders(true),
+            signal: controller.signal,
             body: JSON.stringify({
               model,
               messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
@@ -157,11 +171,25 @@ export class OpenRouterProvider implements LLMProvider {
             }),
           });
         } catch (e) {
+          const isAbort =
+            (e as any)?.name === 'AbortError' ||
+            String((e as any)?.message ?? '').toLowerCase().includes('aborted');
+          if (isAbort) {
+            lastErr = new OpenRouterProviderError(
+              `OpenRouter model request timeout (${this.singleModelRequestTimeoutMs}ms)`,
+              'unavailable',
+              { attemptedModel: model },
+            );
+            // Try next model.
+            break;
+          }
           throw new OpenRouterProviderError(
             `OpenRouter network error: ${(e as any)?.message ?? String(e)}`,
             'network',
             { attemptedModel: model },
           );
+        } finally {
+          clearTimeout(timer);
         }
 
         text = await res.text();
@@ -348,7 +376,7 @@ export class OpenRouterProvider implements LLMProvider {
     for (const model of prioritized) {
       if (!ordered.includes(model)) ordered.push(model);
     }
-    return ordered;
+    return ordered.slice(0, this.maxModelsToTryPerCall);
   }
 
   private parseAffordableTokens(errorBody: string): number | null {
@@ -379,21 +407,34 @@ export class OpenRouterProvider implements LLMProvider {
     return [...models].sort((a, b) => this.modelScore(b) - this.modelScore(a));
   }
 
+  private extractModelSizeB(modelId: string): number | null {
+    const match = modelId.match(/(\d+(?:\.\d+)?)b\b/i);
+    if (!match) return null;
+    const size = Number(match[1]);
+    if (!Number.isFinite(size)) return null;
+    return size;
+  }
+
   private modelScore(model: string): number {
     const m = model.toLowerCase();
     if (m === 'openrouter/auto') return -10000;
     if (!m.endsWith(':free')) return -5000;
 
-    let score = 0;
-    score += this.extractModelSizeScore(m);
+    const sizeB = this.extractModelSizeB(m) ?? 0;
+    // Quality grows sub-linearly with size, while latency grows super-linearly.
+    // This keeps small/medium models at the top and avoids long timeouts.
+    const qualityBySize = Math.round(Math.sqrt(sizeB) * 220);
+    const latencyPenalty = sizeB > 20 ? Math.round(Math.pow(sizeB - 20, 1.2) * 14) : 0;
 
-    if (m.includes('gpt') || m.includes('claude') || m.includes('gemini')) score += 120;
-    if (m.includes('llama') || m.includes('mistral') || m.includes('qwen')) score += 90;
-    if (m.includes('hermes') || m.includes('nous')) score += 70;
-    if (m.includes('instruct') || m.includes('chat')) score += 25;
-    if (m.includes('coder')) score -= 10;
-    if (m.includes('mini') || m.includes('small')) score -= 20;
-    if (m.includes('3b') || m.includes('4b')) score -= 15;
+    let score = qualityBySize - latencyPenalty;
+
+    if (m.includes('gpt') || m.includes('claude') || m.includes('gemini')) score += 180;
+    if (m.includes('llama') || m.includes('mistral') || m.includes('qwen')) score += 120;
+    if (m.includes('hermes') || m.includes('nous')) score += 95;
+    if (m.includes('instruct') || m.includes('chat')) score += 35;
+    if (m.includes('coder')) score -= 5;
+    if (m.includes('mini') || m.includes('small')) score -= 8;
+    if (m.includes('3b') || m.includes('4b')) score -= 2;
 
     return score;
   }
@@ -426,14 +467,6 @@ export class OpenRouterProvider implements LLMProvider {
       if (!merged.includes(candidate)) merged.push(candidate);
     }
     return merged;
-  }
-
-  private extractModelSizeScore(modelId: string): number {
-    const match = modelId.match(/(\d+(?:\.\d+)?)b\b/i);
-    if (!match) return 0;
-    const size = Number(match[1]);
-    if (!Number.isFinite(size)) return 0;
-    return Math.round(size * 10);
   }
 
   private async getRemoteFreeModels(): Promise<string[]> {

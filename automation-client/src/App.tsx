@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+﻿import React, { useMemo, useRef, useState } from 'react';
 import './App.css';
 import { GeminiProvider } from './core/llm/providers/GeminiProvider';
 import { LLMManager } from './core/llm/LLMManager';
@@ -13,7 +13,7 @@ import { BrowserController } from './core/mcp/BrowserController';
 import { StateManager } from './core/state/StateManager';
 import { TaskExecutionCheckpoint, TaskExecutor } from './core/execution/TaskExecutor';
 import { BrowserAction } from './core/execution/ActionTypes';
-import { TaskStatus } from './core/state/types';
+import { TaskHistoryEntry, TaskStatus } from './core/state/types';
 
 type ProviderName = 'gemini' | 'openrouter' | 'openai' | 'claude' | 'deepseek' | 'ollama';
 
@@ -27,9 +27,9 @@ export const App: React.FC = () => {
   const pausedRef = useRef(false);
 
   const [log, setLog] = useState<string[]>([]);
-  const [plan, setPlan] = useState<BrowserAction[]>([]);
   const [currentStep, setCurrentStep] = useState<{ index: number; step: BrowserAction } | null>(null);
   const [lastStepResult, setLastStepResult] = useState<any>(null);
+  const [finalEntry, setFinalEntry] = useState<TaskHistoryEntry | null>(null);
   const [resumeCheckpoint, setResumeCheckpoint] = useState<TaskExecutionCheckpoint | null>(null);
 
   const appendLog = (msg: string) => {
@@ -85,9 +85,9 @@ export const App: React.FC = () => {
 
       if (opts.mode === 'fresh') {
         setLog([]);
-        setPlan([]);
         setCurrentStep(null);
         setLastStepResult(null);
+        setFinalEntry(null);
         setResumeCheckpoint(null);
       } else {
         appendLog(`[UI] continue requested from stepIndex=${resumeCheckpoint!.nextStepIndex}`);
@@ -117,8 +117,8 @@ export const App: React.FC = () => {
           onStatusChange: (s) => {
             setStatus(s);
           },
-          onPlanChange: (p) => {
-            setPlan(p);
+          onPlanChange: () => {
+            // hidden in UI; execution details are available in logs
           },
           onCurrentStep: (index, step) => {
             setCurrentStep({ index, step });
@@ -128,6 +128,7 @@ export const App: React.FC = () => {
             setLastStepResult(result);
           },
           onTaskDone: (entry) => {
+            setFinalEntry(entry);
             appendLog(`[Done] ${entry.resultSummary}${entry.error ? ` error=${entry.error}` : ''}`);
           },
           onCheckpoint: (checkpoint) => {
@@ -211,7 +212,7 @@ export const App: React.FC = () => {
             <textarea
               className="task-input"
               rows={4}
-              placeholder="Опишите задачу: найти вакансии, открыть отклик, собрать данные, написать сопроводительное..."
+              placeholder="Опишите задачу: найти, заполнить, кликнуть, скопировать/вставить, перетащить, пролистать, распознать текст или изображение..."
               value={taskText}
               onChange={(e) => setTaskText(e.target.value)}
             />
@@ -233,12 +234,7 @@ export const App: React.FC = () => {
           </div>
         </section>
 
-        <section className="panel-grid">
-          <article className="panel-card">
-            <h3 className="panel-title">Plan</h3>
-            <pre className="panel-content">{plan.length ? JSON.stringify(plan, null, 2) : '—'}</pre>
-          </article>
-
+        <section className="panel-grid panel-grid-compact">
           <article className="panel-card">
             <h3 className="panel-title">Current step</h3>
             <div className="panel-content">
@@ -255,8 +251,20 @@ export const App: React.FC = () => {
           </article>
 
           <article className="panel-card">
-            <h3 className="panel-title">Last result</h3>
-            <pre className="panel-content">{lastStepResult == null ? '—' : JSON.stringify(lastStepResult, null, 2)}</pre>
+            <h3 className="panel-title">User result</h3>
+            <div className="panel-content">
+              {finalEntry ? (
+                <>
+                  <div className="step-action">{finalEntry.error ? 'Execution failed' : 'Execution finished'}</div>
+                  <div>{finalEntry.resultSummary ?? 'No summary from agent'}</div>
+                  {finalEntry.error ? <div>Error: {finalEntry.error}</div> : null}
+                  <div>Executed steps: {finalEntry.plan.length}</div>
+                  {typeof lastStepResult?.url === 'string' ? <div>Last URL: {lastStepResult.url}</div> : null}
+                </>
+              ) : (
+                'Result will appear here after completion.'
+              )}
+            </div>
           </article>
         </section>
 

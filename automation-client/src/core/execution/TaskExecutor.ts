@@ -1,4 +1,4 @@
-import { BrowserController } from '../mcp/BrowserController';
+﻿import { BrowserController } from '../mcp/BrowserController';
 import { TaskPlanner } from '../planning/TaskPlanner';
 import { StateManager } from '../state/StateManager';
 import { BrowserAction } from './ActionTypes';
@@ -62,6 +62,9 @@ export class TaskExecutor {
     const stepEndExclusive = stepStart + this.maxSteps;
 
     let consecutiveMcpErrors = 0;
+    let consecutiveSelectorNotFoundErrors = 0;
+    let meaningfulExtractCount = 0;
+    let doneRecoveryAttempts = 0;
     let consecutivePlannerTempFailures = 0;
     let lastExecutedSignature = '';
     let repeatedExecutedSignatureCount = 0;
@@ -154,6 +157,9 @@ export class TaskExecutor {
           this.callbacks.onStepLog(`[PlannerError] ${err?.message ?? String(e)}`);
           lastRawModelOutput = err?.rawModelOutput ?? lastRawModelOutput;
           lastParseErrorMessage = err?.message ?? String(e);
+          if (this.isHardProviderBudgetError(lastParseErrorMessage)) {
+            throw new Error(lastParseErrorMessage);
+          }
           if (this.isLikelyProviderTemporaryFailure(lastParseErrorMessage)) {
             consecutivePlannerTempFailures += 1;
             const waitMs = this.computePlannerBackoffWaitMs(consecutivePlannerTempFailures);
@@ -205,6 +211,48 @@ export class TaskExecutor {
       }
 
       if (toolCall.status === 'done') {
+        const doneSummary = toolCall.finalResult ?? toolCall.description ?? 'done';
+        if (this.isFailureDoneSummary(doneSummary)) {
+          const finishedAt = Date.now();
+          const entry: TaskHistoryEntry = {
+            id: taskId,
+            startedAt,
+            finishedAt,
+            taskText,
+            provider: providerName,
+            plan,
+            resultSummary: 'error',
+            error: doneSummary,
+          };
+          this.state.setStatus('error');
+          this.callbacks.onStatusChange('error');
+          this.callbacks.onTaskDone(entry);
+          throw new Error(doneSummary);
+        }
+
+        const lowConfidenceDone =
+          this.isLowConfidenceDoneText(toolCall.finalResult) ||
+          this.isLowConfidenceDoneText(toolCall.description);
+
+        if (
+          doneRecoveryAttempts < 2 &&
+          (consecutiveSelectorNotFoundErrors >= 2 || meaningfulExtractCount === 0 || lowConfidenceDone)
+        ) {
+          doneRecoveryAttempts += 1;
+          this.callbacks.onStepLog(
+            `[PlannerHint] done ignored: low-confidence completion, forcing recovery extract (${doneRecoveryAttempts}/2)`,
+          );
+          toolCall = {
+            status: 'continue',
+            action: 'extract',
+            selector: 'body',
+            extractStrategy: 'inner_text',
+            description: 'Recovery: extract full page text before finishing.',
+          } as ToolCall;
+        }
+      }
+
+      if (toolCall.status === 'done') {
         const finishedAt = Date.now();
         const entry: TaskHistoryEntry = {
           id: taskId,
@@ -235,8 +283,12 @@ export class TaskExecutor {
         await this.waitIfPaused(stepIndex);
         const result = await this.browser.executeAction(step);
         consecutiveMcpErrors = 0;
+        consecutiveSelectorNotFoundErrors = 0;
         lastErrorMessage = '';
         lastObservation = result;
+        if (this.isMeaningfulExtract(step, result)) {
+          meaningfulExtractCount += 1;
+        }
 
         const stepSig = this.buildStepSignature(step, result);
         if (stepSig && stepSig === lastExecutedSignature) {
@@ -257,6 +309,25 @@ export class TaskExecutor {
             latestResultPreview: this.summarize(result),
           };
           this.callbacks.onStepLog(`[PlannerHint] ${lastErrorMessage}`);
+
+          if (repeatedExecutedSignatureCount >= 5) {
+            const fatal = `Planner loop stop: identical step repeated ${repeatedExecutedSignatureCount} times`;
+            const finishedAt = Date.now();
+            const entry: TaskHistoryEntry = {
+              id: taskId,
+              startedAt,
+              finishedAt,
+              taskText,
+              provider: providerName,
+              plan,
+              resultSummary: 'error',
+              error: fatal,
+            };
+            this.state.setStatus('error');
+            this.callbacks.onStatusChange('error');
+            this.callbacks.onTaskDone(entry);
+            throw new Error(fatal);
+          }
         }
 
         // Append executed step to the plan.
@@ -277,6 +348,11 @@ export class TaskExecutor {
         const err = e as Error;
         consecutiveMcpErrors += 1;
         lastErrorMessage = err?.message || String(e);
+        if (this.isSelectorNotFoundError(lastErrorMessage)) {
+          consecutiveSelectorNotFoundErrors += 1;
+        } else {
+          consecutiveSelectorNotFoundErrors = 0;
+        }
         lastObservation = { error: lastErrorMessage };
 
         // Append attempted step so user can see what failed.
@@ -430,6 +506,56 @@ export class TaskExecutor {
     );
   }
 
+  private isHardProviderBudgetError(message: string) {
+    const m = message.toLowerCase();
+    return (
+      m.includes('spend limit exceeded') ||
+      m.includes('requires more credits') ||
+      m.includes('upgrade to a paid account') ||
+      m.includes('can only afford')
+    );
+  }
+
+  private isSelectorNotFoundError(message: string) {
+    const m = message.toLowerCase();
+    return m.includes('element not found') || m.includes('selector');
+  }
+
+  private isMeaningfulExtract(step: BrowserAction, result: any) {
+    if (step.action !== 'extract') return false;
+    const text = typeof result?.text === 'string' ? result.text.trim() : '';
+    const html = typeof result?.html === 'string' ? result.html.trim() : '';
+    return text.length >= 40 || html.length >= 120;
+  }
+
+  private isFailureDoneSummary(summary: string) {
+    const m = summary.toLowerCase();
+    return (
+      m.includes('unable to') ||
+      m.includes('cannot') ||
+      m.includes('could not') ||
+      m.includes('failed') ||
+      m.includes('not found') ||
+      m.includes('timeout') ||
+      m.includes('blocked')
+    );
+  }
+
+  private isLowConfidenceDoneText(text?: string) {
+    const v = (text ?? '').trim();
+    if (!v) return true;
+    if (v.length < 24) return true;
+    const lower = v.toLowerCase();
+    return (
+      lower.startsWith('extract ') ||
+      lower.startsWith('извлеч') ||
+      lower.startsWith('click ') ||
+      lower.startsWith('open ') ||
+      lower.startsWith('type ') ||
+      lower.startsWith('wait ')
+    );
+  }
+
   private isLikelyTruncatedToolCall(rawOutput: string) {
     const s = (rawOutput ?? '').trim();
     if (!s) return false;
@@ -465,4 +591,5 @@ export class TaskExecutor {
     };
   }
 }
+
 

@@ -242,6 +242,10 @@ body {
   grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(280px, 1.2fr);
 }
 
+.panel-grid-compact {
+  grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.4fr);
+}
+
 .panel-card {
   padding: 14px;
   min-height: 230px;
@@ -266,7 +270,7 @@ body {
   padding: 10px;
   overflow: auto;
   max-height: 320px;
-  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-family: 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;

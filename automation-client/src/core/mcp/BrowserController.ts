@@ -7,6 +7,7 @@ function sleep(ms: number) {
 
 function stripHtmlToText(html: string) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,noscript,template').forEach((el) => el.remove());
   return doc.body?.innerText ?? '';
 }
 
@@ -26,6 +27,7 @@ export class BrowserController {
   private tabId: string | null = null;
   private lastKnownUrl: string | null = null;
   private lastSearchQuery: string | null = null;
+  private clipboardText: string = '';
 
   constructor(
     private readonly mcp: MCPClient,
@@ -147,6 +149,16 @@ export class BrowserController {
             }
           }
 
+          const generic = await this.tryGenericClickFallback(tabId, action.selector, action.description);
+          if (generic) {
+            return await this.finalizeClickResult(
+              tabId,
+              action,
+              String(generic.selector ?? action.selector),
+              generic,
+            );
+          }
+
           throw err;
         }
       }
@@ -155,14 +167,252 @@ export class BrowserController {
         if (!action.selector) throw new Error('type requires selector');
         const value = action.value ?? '';
         this.logger(`[MCP] fill selector=${action.selector}`);
-        const res = await this.mcp.callTool('fill', {
-          tabId,
-          selector: action.selector,
-          value,
-        });
+        try {
+          const res = await this.mcp.callTool('fill', {
+            tabId,
+            selector: action.selector,
+            value,
+          });
+          const ok = this.assertToolSuccess('fill', res);
+          const submitted = await this.trySubmitAfterSearchInput(
+            tabId,
+            action.selector,
+            value,
+            action.description,
+          );
+          if (submitted) {
+            this.rememberContext(action, submitted);
+            return {
+              ...submitted,
+              searchSubmittedAfterType: true,
+              selector: action.selector,
+            };
+          }
+          this.rememberContext(action, ok);
+          return ok;
+        } catch (e) {
+          const err = e as Error;
+          if (!this.isElementNotFoundError(err.message)) throw err;
+
+          if (this.isSearchInputSelector(action.selector)) {
+            const recovered = await this.trySearchInputFallbackFill(tabId, action.selector, value);
+            if (recovered) {
+              const selectorUsed = String(recovered.selector ?? action.selector);
+              const submitted = await this.trySubmitAfterSearchInput(
+                tabId,
+                selectorUsed,
+                value,
+                action.description,
+              );
+              if (submitted) {
+                this.rememberContext({ ...action, selector: selectorUsed }, submitted);
+                return {
+                  ...submitted,
+                  searchSubmittedAfterType: true,
+                  selector: selectorUsed,
+                };
+              }
+              this.rememberContext({ ...action, selector: selectorUsed }, recovered);
+              return recovered;
+            }
+          }
+
+          const generic = await this.tryGenericTypeFallback(
+            tabId,
+            action.selector,
+            value,
+            action.description,
+          );
+          if (generic) {
+            const selectorUsed = String(generic.selector ?? action.selector);
+            const submitted = await this.trySubmitAfterSearchInput(
+              tabId,
+              selectorUsed,
+              value,
+              action.description,
+            );
+            if (submitted) {
+              this.rememberContext({ ...action, selector: selectorUsed }, submitted);
+              return {
+                ...submitted,
+                searchSubmittedAfterType: true,
+                selector: selectorUsed,
+              };
+            }
+            this.rememberContext({ ...action, selector: selectorUsed }, generic);
+            return generic;
+          }
+
+          throw err;
+        }
+      }
+
+      case 'press_key': {
+        const key = action.key?.trim();
+        if (!key) throw new Error('press_key requires key');
+        this.logger(`[MCP] press_key key=${key}`);
+
+        const attempts: Array<{ name: string; args: Record<string, any> }> = [
+          { name: 'press_key', args: { tabId, key } },
+          { name: 'press', args: { tabId, key } },
+          { name: 'keyboard', args: { tabId, key } },
+          { name: 'key', args: { tabId, key } },
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            const res = await this.mcp.callTool(attempt.name, attempt.args);
+            const ok = this.assertToolSuccess(attempt.name, res);
+            this.rememberContext(action, ok);
+            return {
+              ...ok,
+              toolUsed: attempt.name,
+            };
+          } catch {
+            // continue
+          }
+        }
+        throw new Error('MCP press_key failed: no supported keyboard tool found');
+      }
+
+      case 'scroll': {
+        const direction = action.direction ?? 'down';
+        const dx = typeof action.deltaX === 'number' ? action.deltaX : 0;
+        const dy =
+          typeof action.deltaY === 'number'
+            ? action.deltaY
+            : direction === 'up'
+            ? -700
+            : direction === 'left'
+            ? 0
+            : direction === 'right'
+            ? 0
+            : 700;
+        this.logger(`[MCP] scroll direction=${direction} deltaX=${dx} deltaY=${dy}`);
+
+        const attempts: Array<{ name: string; args: Record<string, any> }> = [
+          { name: 'scroll', args: { tabId, selector: action.selector, deltaX: dx, deltaY: dy } },
+          { name: 'wheel', args: { tabId, deltaX: dx, deltaY: dy } },
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            const res = await this.mcp.callTool(attempt.name, attempt.args);
+            const ok = this.assertToolSuccess(attempt.name, res);
+            this.rememberContext(action, ok);
+            return {
+              ...ok,
+              toolUsed: attempt.name,
+            };
+          } catch {
+            // continue
+          }
+        }
+        throw new Error('MCP scroll failed: no supported scroll tool found');
+      }
+
+      case 'drag_drop': {
+        if (!action.sourceSelector) throw new Error('drag_drop requires sourceSelector');
+        if (!action.targetSelector) throw new Error('drag_drop requires targetSelector');
+        this.logger(`[MCP] drag_drop ${action.sourceSelector} -> ${action.targetSelector}`);
+
+        const attempts: Array<{ name: string; args: Record<string, any> }> = [
+          {
+            name: 'drag_drop',
+            args: { tabId, sourceSelector: action.sourceSelector, targetSelector: action.targetSelector },
+          },
+          {
+            name: 'drag',
+            args: { tabId, sourceSelector: action.sourceSelector, targetSelector: action.targetSelector },
+          },
+          {
+            name: 'dragAndDrop',
+            args: { tabId, source: action.sourceSelector, target: action.targetSelector },
+          },
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            const res = await this.mcp.callTool(attempt.name, attempt.args);
+            const ok = this.assertToolSuccess(attempt.name, res);
+            this.rememberContext(action, ok);
+            return {
+              ...ok,
+              toolUsed: attempt.name,
+            };
+          } catch {
+            // continue
+          }
+        }
+        throw new Error('MCP drag_drop failed: no supported drag tool found');
+      }
+
+      case 'copy': {
+        if (action.selector) {
+          this.logger(`[MCP] copy selector=${action.selector}`);
+          try {
+            const domRaw = await this.mcp.callTool('dom', { tabId, selector: action.selector });
+            const dom = this.assertToolSuccess('dom', domRaw);
+            const html = normalizeDomResult(dom);
+            const text = stripHtmlToText(html).trim();
+            this.clipboardText = text;
+            this.rememberContext(action, { copiedChars: text.length, selector: action.selector });
+            return {
+              copiedText: text,
+              copiedChars: text.length,
+              selector: action.selector,
+            };
+          } catch (e) {
+            const err = e as Error;
+            if (!this.isElementNotFoundError(err.message)) throw err;
+          }
+        }
+
+        const currentText = typeof action.value === 'string' ? action.value : this.clipboardText;
+        if (currentText) {
+          this.clipboardText = currentText;
+          return { copiedText: currentText, copiedChars: currentText.length, source: 'memory' };
+        }
+
+        throw new Error('copy failed: selector/value missing and clipboard is empty');
+      }
+
+      case 'paste': {
+        if (!action.selector) throw new Error('paste requires selector');
+        const text = typeof action.value === 'string' ? action.value : this.clipboardText;
+        if (!text) throw new Error('paste failed: clipboard is empty');
+        this.logger(`[MCP] paste selector=${action.selector}`);
+        const filled =
+          (await this.tryGenericTypeFallback(tabId, action.selector, text, action.description)) ??
+          (await this.trySearchInputFallbackFill(tabId, action.selector, text));
+        if (filled) {
+          this.rememberContext(action, filled);
+          return {
+            ...filled,
+            pastedChars: text.length,
+          };
+        }
+        const res = await this.mcp.callTool('fill', { tabId, selector: action.selector, value: text });
         const ok = this.assertToolSuccess('fill', res);
         this.rememberContext(action, ok);
-        return ok;
+        return {
+          ...ok,
+          pastedChars: text.length,
+        };
+      }
+
+      case 'mcp_tool': {
+        if (!action.toolName?.trim()) throw new Error('mcp_tool requires toolName');
+        const toolName = action.toolName.trim();
+        const args = { tabId, ...(action.toolArgs ?? {}) };
+        this.logger(`[MCP] custom tool=${toolName}`);
+        const res = await this.mcp.callTool(toolName, args);
+        const ok = this.assertToolSuccess(toolName, res);
+        this.rememberContext(action, ok);
+        return {
+          ...ok,
+          toolUsed: toolName,
+        };
       }
 
       case 'wait': {
@@ -187,13 +437,19 @@ export class BrowserController {
           dom = this.assertToolSuccess('dom', domRaw);
         } catch (e) {
           const err = e as Error;
-          if (this.isElementNotFoundError(err.message) && this.isVacancyListSelector(action.selector)) {
-            const fallbackDom = await this.tryVacancyExtractFallback(tabId, action.selector);
-            if (!fallbackDom) throw err;
-            dom = fallbackDom;
-          } else {
+          if (!this.isElementNotFoundError(err.message)) {
             throw err;
           }
+
+          let fallbackDom: any | null = null;
+          if (this.isVacancyListSelector(action.selector)) {
+            fallbackDom = await this.tryVacancyExtractFallback(tabId, action.selector);
+          }
+          if (!fallbackDom) {
+            fallbackDom = await this.tryGenericExtractFallback(tabId, action.selector);
+          }
+          if (!fallbackDom) throw err;
+          dom = fallbackDom;
         }
 
         const html = normalizeDomResult(dom);
@@ -269,7 +525,7 @@ export class BrowserController {
     if (
       action.action === 'type' &&
       action.selector &&
-      /search|query|text/i.test(action.selector) &&
+      /search|query|text|поиск|найти/i.test(action.selector) &&
       typeof action.value === 'string' &&
       action.value.trim().length > 0
     ) {
@@ -283,7 +539,11 @@ export class BrowserController {
   }
 
   private isSearchSubmitSelector(selector: string) {
-    return /search|query|submit/i.test(selector);
+    return /search|query|submit|find|поиск|найти/i.test(selector);
+  }
+
+  private isSearchInputSelector(selector: string) {
+    return /search|query|text|input|combobox|поиск|найти/i.test(selector);
   }
 
   private isVacancyListSelector(selector: string) {
@@ -398,6 +658,14 @@ export class BrowserController {
       "button[type='submit']",
       "[data-qa='search-button']",
       "[data-qa='vacancy-search-button']",
+      "[data-testid*='search']",
+      "button[aria-label*='Find']",
+      "button[aria-label*='Поиск']",
+      "button[aria-label*='Найти']",
+      "button[class*='search']",
+      "button[class*='find']",
+      "[role='button'][class*='search']",
+      "[role='button'][class*='find']",
       'button[aria-label*="Search"]',
     ];
     return await this.tryClickCandidates(tabId, originalSelector, candidates);
@@ -411,6 +679,83 @@ export class BrowserController {
   private async tryResponseButtonFallbackClick(tabId: string, originalSelector: string) {
     const candidates = this.getResponseSelectorCandidates();
     return await this.tryClickCandidates(tabId, originalSelector, candidates);
+  }
+
+  private async trySearchInputFallbackFill(tabId: string, originalSelector: string, value: string) {
+    const candidates = this.getSearchInputCandidates();
+    for (const selector of candidates) {
+      if (selector === originalSelector) continue;
+      this.logger(`[MCP] fill fallback selector=${selector}`);
+      try {
+        const res = await this.mcp.callTool('fill', { tabId, selector, value });
+        const ok = this.assertToolSuccess('fill', res);
+        return { ...ok, selector };
+      } catch {
+        // try next selector
+      }
+    }
+
+    if (this.isYandexMapsUrl(this.lastKnownUrl)) {
+      const opened = await this.tryClickCandidates(tabId, '', this.getYandexSearchOpenCandidates());
+      if (opened) {
+        await sleep(300);
+        for (const selector of candidates) {
+          this.logger(`[MCP] fill retry-after-open selector=${selector}`);
+          try {
+            const res = await this.mcp.callTool('fill', { tabId, selector, value });
+            const ok = this.assertToolSuccess('fill', res);
+            return { ...ok, selector };
+          } catch {
+            // try next selector
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private async trySubmitAfterSearchInput(
+    tabId: string,
+    selector: string,
+    value: string,
+    description?: string,
+  ) {
+    if (!value.trim() || !this.isSearchInputSelector(`${selector} ${description ?? ''}`)) return null;
+
+    if (this.isYandexMapsUrl(this.lastKnownUrl)) {
+      const viaUrl = await this.trySearchUrlFallback(tabId);
+      if (viaUrl) return viaUrl;
+    }
+
+    const candidates = this.getGenericSearchSubmitCandidates(selector, description);
+    return await this.tryClickCandidates(tabId, '', candidates);
+  }
+
+  private async tryGenericClickFallback(tabId: string, originalSelector: string, description?: string) {
+    const candidates = this.getGenericClickCandidates(originalSelector, description);
+    return await this.tryClickCandidates(tabId, originalSelector, candidates);
+  }
+
+  private async tryGenericTypeFallback(
+    tabId: string,
+    originalSelector: string,
+    value: string,
+    description?: string,
+  ) {
+    const candidates = this.getGenericTypeCandidates(originalSelector, description);
+    for (const selector of candidates) {
+      if (selector === originalSelector) continue;
+      this.logger(`[MCP] fill generic fallback selector=${selector}`);
+      try {
+        const res = await this.mcp.callTool('fill', { tabId, selector, value });
+        const ok = this.assertToolSuccess('fill', res);
+        return { ...ok, selector };
+      } catch {
+        // try next selector
+      }
+    }
+    return null;
   }
 
   private async tryClickCandidates(tabId: string, originalSelector: string, candidates: string[]) {
@@ -444,11 +789,32 @@ export class BrowserController {
     return null;
   }
 
+  private async tryGenericExtractFallback(tabId: string, originalSelector: string) {
+    const candidates = this.getGenericExtractCandidates(originalSelector);
+    for (const selector of candidates) {
+      if (selector === originalSelector) continue;
+      this.logger(`[MCP] extract generic fallback selector=${selector}`);
+      try {
+        const res = await this.mcp.callTool('dom', { tabId, selector });
+        const ok = this.assertToolSuccess('dom', res);
+        return { ...ok, selector };
+      } catch {
+        // try next selector
+      }
+    }
+    return null;
+  }
+
   private async trySearchUrlFallback(tabId: string) {
     if (!this.lastSearchQuery) return null;
     const query = encodeURIComponent(this.lastSearchQuery);
-    const origin = this.resolveHhOrigin();
-    const url = `${origin}/search/vacancy?text=${query}`;
+    let url: string;
+    if (this.isYandexMapsUrl(this.lastKnownUrl)) {
+      url = `https://yandex.ru/maps/?text=${query}`;
+    } else {
+      const origin = this.resolveHhOrigin();
+      url = `${origin}/search/vacancy?text=${query}`;
+    }
 
     this.logger(`[MCP] search fallback navigate url=${url}`);
     const res = await this.mcp.callTool('navigate', {
@@ -527,6 +893,175 @@ export class BrowserController {
       "button[data-qa*='vacancy-response']",
       "a[href*='response']",
     ];
+  }
+
+  private getSearchInputCandidates() {
+    return [
+      "input[type='search']",
+      "input[type='text']",
+      "input[role='combobox']",
+      "input[name='text']",
+      "input[id*='search']",
+      "input[class*='search']",
+      "input[class*='query']",
+      "input[aria-label*='Search']",
+      "input[aria-label*='Поиск']",
+      "input[placeholder*='Search']",
+      "input[placeholder*='Поиск']",
+      'textarea',
+      "[contenteditable='true']",
+    ];
+  }
+
+  private getYandexSearchOpenCandidates() {
+    return [
+      "button[aria-label*='Search']",
+      "button[aria-label*='Поиск']",
+      "button[class*='search']",
+      "button[class*='find']",
+      "button[class*='searchbox']",
+      "[class*='search'] button",
+      "[data-testid*='search'] button",
+      "[role='button'][class*='search']",
+      "[role='button'][class*='find']",
+    ];
+  }
+
+  private getGenericExtractCandidates(originalSelector: string) {
+    const tokenSelectors = this.extractSelectorTokens(originalSelector).flatMap((t) => [
+      `[data-testid*='${t}']`,
+      `[data-qa*='${t}']`,
+      `[id*='${t}']`,
+      `[class*='${t}']`,
+      `[name*='${t}']`,
+    ]);
+    return Array.from(
+      new Set([
+        ...tokenSelectors,
+        "[role='main']",
+        'main',
+        'article',
+        'section',
+        'body',
+      ]),
+    );
+  }
+
+  private getGenericSearchSubmitCandidates(originalSelector: string, description?: string) {
+    const tokens = this.extractSelectorTokens(`${originalSelector} ${description ?? ''}`);
+    const tokenSelectors = tokens.flatMap((t) => [
+      `button[id*='${t}']`,
+      `button[class*='${t}']`,
+      `[role='button'][class*='${t}']`,
+      `[data-testid*='${t}']`,
+      `[data-qa*='${t}']`,
+    ]);
+    return Array.from(
+      new Set([
+        ...tokenSelectors,
+        "button[type='submit']",
+        "button[aria-label*='Search']",
+        "button[aria-label*='Find']",
+        "button[aria-label*='Поиск']",
+        "button[aria-label*='Найти']",
+        "[data-testid*='search']",
+        "[data-qa*='search']",
+        "button[class*='search']",
+        "button[class*='find']",
+        "[role='button'][class*='search']",
+        "[role='button'][class*='find']",
+      ]),
+    );
+  }
+
+  private getGenericClickCandidates(originalSelector: string, description?: string) {
+    const tokens = this.extractSelectorTokens(`${originalSelector} ${description ?? ''}`);
+    const tokenSelectors = tokens.flatMap((t) => [
+      `[data-testid*='${t}']`,
+      `[data-qa*='${t}']`,
+      `[id*='${t}']`,
+      `[name*='${t}']`,
+      `[class*='${t}']`,
+      `button[id*='${t}']`,
+      `button[class*='${t}']`,
+      `a[id*='${t}']`,
+      `a[class*='${t}']`,
+      `button[aria-label*='${t}']`,
+      `a[aria-label*='${t}']`,
+      `[role='button'][aria-label*='${t}']`,
+    ]);
+    return Array.from(
+      new Set([
+        ...tokenSelectors,
+        "button[type='submit']",
+        "button[aria-label*='Search']",
+        "button[aria-label*='Find']",
+        "[role='button']",
+        'button',
+        "a[role='button']",
+      ]),
+    );
+  }
+
+  private getGenericTypeCandidates(originalSelector: string, description?: string) {
+    const tokens = this.extractSelectorTokens(`${originalSelector} ${description ?? ''}`);
+    const tokenSelectors = tokens.flatMap((t) => [
+      `input[id*='${t}']`,
+      `input[name*='${t}']`,
+      `input[class*='${t}']`,
+      `input[placeholder*='${t}']`,
+      `textarea[id*='${t}']`,
+      `textarea[name*='${t}']`,
+      `textarea[class*='${t}']`,
+      `[contenteditable='true'][aria-label*='${t}']`,
+    ]);
+    return Array.from(
+      new Set([
+        ...tokenSelectors,
+        ...this.getSearchInputCandidates(),
+      ]),
+    );
+  }
+
+  private extractSelectorTokens(source: string) {
+    const raw = (source || '').toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [];
+    return Array.from(new Set(raw.filter((t) => !this.isNoiseSelectorToken(t)))).slice(0, 12);
+  }
+
+  private isNoiseSelectorToken(token: string) {
+    return (
+      token.length < 3 ||
+      [
+        'data',
+        'testid',
+        'qa',
+        'class',
+        'name',
+        'role',
+        'aria',
+        'label',
+        'type',
+        'input',
+        'button',
+        'click',
+        'open',
+        'wait',
+        'поиск',
+        'найти',
+        'кнопка',
+        'поле',
+      ].includes(token)
+    );
+  }
+
+  private isYandexMapsUrl(url: string | null | undefined) {
+    if (!url) return false;
+    try {
+      const host = new URL(url).hostname;
+      return host.includes('yandex.ru') || host.includes('yandex.com');
+    } catch {
+      return false;
+    }
   }
 
   private resolveHhOrigin() {

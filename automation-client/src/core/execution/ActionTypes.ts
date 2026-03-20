@@ -4,7 +4,13 @@ export type BrowserActionType =
   | 'type'
   | 'wait'
   | 'extract'
-  | 'screenshot';
+  | 'screenshot'
+  | 'press_key'
+  | 'scroll'
+  | 'drag_drop'
+  | 'copy'
+  | 'paste'
+  | 'mcp_tool';
 
 export type ExtractStrategy = 'inner_text' | 'html' | 'attribute';
 
@@ -17,5 +23,13 @@ export interface BrowserAction {
   description: string;
   extractStrategy?: ExtractStrategy;
   attributeName?: string;
+  key?: string;
+  sourceSelector?: string;
+  targetSelector?: string;
+  deltaX?: number;
+  deltaY?: number;
+  direction?: 'up' | 'down' | 'left' | 'right';
+  toolName?: string;
+  toolArgs?: Record<string, any>;
 }
 

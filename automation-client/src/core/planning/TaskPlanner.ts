@@ -1,4 +1,4 @@
-import { LLMManager } from '../llm/LLMManager';
+﻿import { LLMManager } from '../llm/LLMManager';
 import { BrowserAction } from '../execution/ActionTypes';
 import { extractFirstJsonObject } from '../utils/json';
 import { ToolCall, toolCallSchema } from './toolCallSchema';
@@ -10,41 +10,42 @@ export class TaskPlanner {
   ) {}
 
   async parseUserIntent(taskText: string): Promise<string> {
-    // MVP: пока используем задачу как есть.
+    // MVP: use task text as-is.
     return taskText;
   }
 
-  private readonly TOOL_SYSTEM_PROMPT = `Ты — агент автоматизации браузера через MCP/Kapture.
+  private readonly TOOL_SYSTEM_PROMPT = `You are a browser automation agent using MCP/Kapture.
 
-Ты вызываешь ИМЕННО ОДНУ следующую операцию за раз (tool call).
+Return exactly ONE valid JSON object and nothing else.
 
-ТВОЯ ЗАДАЧА:
-- по задаче пользователя и текущему контексту выбрать следующий tool call
-- либо завершить работу (status="done")
+Rules:
+- No markdown.
+- No arrays.
+- No wrapper fields like "tool_code", "tool_call", "next_action".
+- Field "action" must be one of: open_url | click | type | wait | extract | screenshot | press_key | scroll | drag_drop | copy | paste | mcp_tool.
+- "status" is required: "continue" or "done".
+- "description" is required and must be a non-empty string.
+- For status="done", include "finalResult" with concrete findings and user-visible outcome.
+- Do not repeat the same failing selector or identical action payload.
+- If a selector is uncertain, prefer extract with selector "body" and extractStrategy "inner_text".
+- extractStrategy can only be: inner_text | html | attribute.
+- Use mcp_tool only for advanced interaction when standard actions are insufficient.
 
-ВАЖНО:
-- Верни ТОЛЬКО валидный JSON-ОБЪЕКТ (без markdown, без комментариев, без текста вокруг).
-- Никаких массивов.
-- Не используй обертки "tool_code", "tool_call", "next_action" или вложенный объект "action".
-- Поле "action" должно быть строкой из: open_url | click | type | wait | extract | screenshot.
-- НЕ повторяй одинаковый tool call (тот же action + selector/value) больше 2 раз подряд.
-- Если наблюдение не меняется, выбери ДРУГОЕ действие (например click/wait/open_url/screenshot) или верни status="done" с объяснением.
+Action shapes:
+- open_url: { "status":"continue", "action":"open_url", "value":"https://...", "description":"..." }
+- click: { "status":"continue", "action":"click", "selector":"...", "description":"..." }
+- type: { "status":"continue", "action":"type", "selector":"...", "value":"...", "description":"..." }
+- wait: { "status":"continue", "action":"wait", "waitMs":1000, "description":"..." }
+- extract: { "status":"continue", "action":"extract", "selector":"body", "extractStrategy":"inner_text", "description":"..." }
+- screenshot: { "status":"continue", "action":"screenshot", "description":"..." }
+- press_key: { "status":"continue", "action":"press_key", "key":"Enter", "description":"..." }
+- scroll: { "status":"continue", "action":"scroll", "direction":"down", "deltaY":700, "description":"..." }
+- drag_drop: { "status":"continue", "action":"drag_drop", "sourceSelector":"...", "targetSelector":"...", "description":"..." }
+- copy: { "status":"continue", "action":"copy", "selector":"...", "description":"..." }
+- paste: { "status":"continue", "action":"paste", "selector":"...", "value":"...", "description":"..." }
+- mcp_tool: { "status":"continue", "action":"mcp_tool", "toolName":"...", "toolArgs":{}, "description":"..." }
 
-TOOLS (allowed actions):
-- open_url: { action:"open_url", value:"https://...", description:"..." }
-- click: { action:"click", selector:"#login", description:"..." }
-- type: { action:"type", selector:"#email", value:"text", description:"..." }
-- wait: { action:"wait", waitMs: 1000, description:"..." }
-- extract: { action:"extract", selector:".item", extractStrategy:"inner_text", description:"..." }
-- screenshot: { action:"screenshot", description:"..." }
-
-Обязательные поля:
-- status: "continue" или "done"
-- description: непустая строка
-
-Если status="done":
-- finalResult: строка (что удалось получить/сделать)
-`;
+Use status="done" only when enough information is gathered or a user-visible result is completed.`;
 
   async generateNextToolCall(params: {
     taskText: string;
@@ -57,11 +58,12 @@ TOOLS (allowed actions):
     const intent = await this.parseUserIntent(params.taskText);
     const fullUserPrompt =
       `TASK:\n${intent}\n\n` +
-      `ACTIONS_SO_FAR (executed so far):\n${JSON.stringify(params.actionsSoFar, null, 2)}\n\n` +
-      `LAST_OBSERVATION (result from MCP for the last step; may be large):\n${this.safeStringify(params.lastObservation)}\n\n` +
-      `LAST_ERROR (if previous MCP/action failed):\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
-      `Now choose the NEXT tool call. You must return JSON with either status="continue" or status="done".\n` +
-      `If the goal is already sufficiently achieved, or further automation is blocked by auth/captcha/permissions/uncertain selectors, return status="done" with finalResult.\n` +
+      `ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 8)}\n\n` +
+      `LAST_OBSERVATION_SUMMARY:\n${this.summarizeObservation(params.lastObservation)}\n\n` +
+      `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
+      `Now choose NEXT tool call. Return only one JSON object.\n` +
+      `Avoid repeated failing selectors.\n` +
+      `If blocked or objective achieved, return status="done" with finalResult describing exactly what was achieved.\n` +
       `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}`;
 
     let response;
@@ -69,7 +71,7 @@ TOOLS (allowed actions):
       response = await this.llm.generate({
         model: this.model,
         temperature: 0.2,
-        maxTokens: 260,
+        maxTokens: 220,
         messages: [
           { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
           { role: 'user', content: fullUserPrompt },
@@ -80,7 +82,7 @@ TOOLS (allowed actions):
       response = await this.llm.generate({
         model: this.model,
         temperature: 0.2,
-        maxTokens: 180,
+        maxTokens: 160,
         messages: [
           { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
           {
@@ -89,8 +91,8 @@ TOOLS (allowed actions):
               `TASK:\n${intent}\n` +
               `stepIndex=${params.stepIndex} maxSteps=${params.maxSteps}\n` +
               `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n` +
-              `LAST_ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 3)}\n` +
-              `LAST_OBSERVATION_SHORT:\n${this.safeStringify(params.lastObservation, 420)}\n` +
+              `LAST_ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 5)}\n` +
+              `LAST_OBSERVATION_SHORT:\n${this.summarizeObservation(params.lastObservation, 420)}\n` +
               `Return ONLY one valid JSON object.`,
           },
         ],
@@ -114,19 +116,19 @@ TOOLS (allowed actions):
     const fullUserPrompt =
       `You returned invalid JSON for the tool call.\n` +
       `TASK:\n${intent}\n\n` +
-      `ACTIONS_SO_FAR:\n${JSON.stringify(params.actionsSoFar, null, 2)}\n\n` +
-      `LAST_OBSERVATION:\n${this.safeStringify(params.lastObservation)}\n\n` +
+      `ACTIONS_TAIL:\n${this.actionsTail(params.actionsSoFar, 6)}\n\n` +
+      `LAST_OBSERVATION_SUMMARY:\n${this.summarizeObservation(params.lastObservation)}\n\n` +
       `LAST_ERROR:\n${params.lastErrorMessage ? params.lastErrorMessage : 'none'}\n\n` +
-      `INVALID_OUTPUT:\n${params.rawModelOutput}\n\n` +
+      `INVALID_OUTPUT:\n${this.safeStringify(params.rawModelOutput, 700)}\n\n` +
       `PARSE_ERROR:\n${params.parseErrorMessage}\n\n` +
-      `Return ONLY a corrected JSON object that matches the schema.`;
+      `Return ONLY corrected JSON object that matches schema.`;
 
     let response;
     try {
       response = await this.llm.generate({
         model: this.model,
         temperature: 0.2,
-        maxTokens: 220,
+        maxTokens: 180,
         messages: [
           {
             role: 'system',
@@ -143,7 +145,7 @@ TOOLS (allowed actions):
       response = await this.llm.generate({
         model: this.model,
         temperature: 0.2,
-        maxTokens: 170,
+        maxTokens: 150,
         messages: [
           { role: 'system', content: this.TOOL_SYSTEM_PROMPT },
           {
@@ -172,8 +174,39 @@ TOOLS (allowed actions):
   }
 
   private actionsTail(actions: BrowserAction[], count: number): string {
-    const tail = actions.slice(Math.max(0, actions.length - count));
-    return this.safeStringify(tail, 350);
+    const start = Math.max(0, actions.length - count);
+    const tail = actions.slice(start).map((a, i) => ({
+      i: start + i + 1,
+      action: a.action,
+      selector: a.selector,
+      value: typeof a.value === 'string' ? this.trimInline(a.value, 80) : undefined,
+      description: this.trimInline(a.description, 120),
+    }));
+    return this.safeStringify(tail, 600);
+  }
+
+  private summarizeObservation(v: any, maxLen = 1200) {
+    try {
+      if (v == null) return 'null';
+      if (typeof v === 'string') return this.trimInline(v, maxLen);
+      const summary: Record<string, any> = {};
+      for (const key of ['success', 'url', 'title', 'selector', 'warning', 'message', 'error']) {
+        if (v[key] != null) summary[key] = v[key];
+      }
+      if (typeof v.text === 'string') summary.text = this.trimInline(v.text, 220);
+      if (typeof v.html === 'string') summary.html = this.trimInline(v.html, 220);
+      if (typeof v.preview === 'string') summary.preview = v.preview;
+      const base = Object.keys(summary).length ? summary : v;
+      return this.safeStringify(base, maxLen);
+    } catch {
+      return this.safeStringify(v, maxLen);
+    }
+  }
+
+  private trimInline(value: string, max: number) {
+    const compact = value.replace(/\s+/g, ' ').trim();
+    if (compact.length <= max) return compact;
+    return `${compact.slice(0, max)}...`;
   }
 
   private isPromptBudgetError(err: unknown): boolean {
@@ -201,6 +234,7 @@ TOOLS (allowed actions):
       const err = e as Error;
       const parseErrorMessage = `${origin}: invalid tool call JSON: ${err.message}`;
       (err as any).rawModelOutput = raw;
+      (err as any).parseErrorMessage = parseErrorMessage;
       throw err;
     }
   }
@@ -239,11 +273,19 @@ TOOLS (allowed actions):
     const selector = this.pickStringField(raw, 'selector');
     const waitMs = this.pickNumberField(raw, 'waitMs');
     const extractStrategy = this.pickStringField(raw, 'extractStrategy');
+    const key = this.pickStringField(raw, 'key');
+    const sourceSelector = this.pickStringField(raw, 'sourceSelector');
+    const targetSelector = this.pickStringField(raw, 'targetSelector');
+    const toolName = this.pickStringField(raw, 'toolName');
 
     if (value) repaired.value = value;
     if (selector) repaired.selector = selector;
     if (typeof waitMs === 'number') repaired.waitMs = waitMs;
     if (extractStrategy) repaired.extractStrategy = extractStrategy;
+    if (key) repaired.key = key;
+    if (sourceSelector) repaired.sourceSelector = sourceSelector;
+    if (targetSelector) repaired.targetSelector = targetSelector;
+    if (toolName) repaired.toolName = toolName;
 
     if (normalizedAction === 'open_url' && !repaired.value) {
       repaired.value = 'https://hh.ru/';
@@ -255,6 +297,18 @@ TOOLS (allowed actions):
       return null;
     }
     if (normalizedAction === 'type' && !repaired.value) {
+      return null;
+    }
+    if (normalizedAction === 'press_key' && !repaired.key) {
+      return null;
+    }
+    if (normalizedAction === 'drag_drop' && (!repaired.sourceSelector || !repaired.targetSelector)) {
+      return null;
+    }
+    if (normalizedAction === 'paste' && !repaired.selector) {
+      return null;
+    }
+    if (normalizedAction === 'mcp_tool' && !repaired.toolName) {
       return null;
     }
 
@@ -300,8 +354,7 @@ TOOLS (allowed actions):
       }
     }
 
-    // Some models wrap action payload into nested shape:
-    // { status:"continue", description:"...", action: { action:"open_url", value:"..." } }
+    // Some models wrap action payload into nested shape.
     if (
       obj.action &&
       typeof obj.action === 'object' &&
@@ -320,7 +373,6 @@ TOOLS (allowed actions):
       obj.action = this.normalizeActionName(obj.action);
     }
 
-    // If model returned done without description, synthesize it from finalResult.
     if (obj.status === 'done') {
       if (!obj.description || typeof obj.description !== 'string' || obj.description.trim().length === 0) {
         const fallbackDesc =
@@ -335,7 +387,6 @@ TOOLS (allowed actions):
       return obj;
     }
 
-    // If model omitted/blank/unknown status but returned action payload, default to continue.
     if (
       (!obj.status || (obj.status !== 'continue' && obj.status !== 'done')) &&
       (typeof obj.action === 'string' || (obj.action && typeof obj.action === 'object'))
@@ -368,9 +419,15 @@ TOOLS (allowed actions):
       snapshot: 'screenshot',
       screen: 'screenshot',
       capture: 'screenshot',
+      keypress: 'press_key',
+      press: 'press_key',
+      scrollby: 'scroll',
+      dragdrop: 'drag_drop',
+      copy_text: 'copy',
+      paste_text: 'paste',
+      tool: 'mcp_tool',
     };
 
     return map[normalized] ?? normalized;
   }
 }
-
