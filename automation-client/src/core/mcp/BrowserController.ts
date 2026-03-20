@@ -50,7 +50,13 @@ export class BrowserController {
         const created = await this.mcp.callTool('new_tab', { url: 'about:blank' });
         this.assertToolSuccess('new_tab', created);
       } catch (e) {
-        this.logger(`[MCP] new_tab failed: ${(e as Error).message}`);
+        const msg = (e as Error).message ?? String(e);
+        this.logger(`[MCP] new_tab failed: ${msg}`);
+        if (this.isKaptureExtensionMissingError(msg)) {
+          throw new Error(
+            'Kapture extension is not connected. Open Kapture browser extension and connect current tab.',
+          );
+        }
       }
       await sleep(1200);
     }
@@ -1088,5 +1094,14 @@ export class BrowserController {
     } catch {
       return 'unknown error';
     }
+  }
+
+  private isKaptureExtensionMissingError(message: string) {
+    const m = message.toLowerCase();
+    return (
+      m.includes('new tab failed to connect within timeout') ||
+      m.includes('make sure the kapture extension is installed') ||
+      m.includes('kapture extension')
+    );
   }
 }
