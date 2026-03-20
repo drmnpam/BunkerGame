@@ -56,6 +56,10 @@ The app is focused on reliable step-by-step execution instead of brittle one-sho
    - set provider keys and MCP URL
    - optional: set `KAPTURE_MCP_START_CMD` for launcher MCP auto-start
    - recommended MCP command: `KAPTURE_MCP_START_CMD=npx -y kapture-mcp bridge`
+   - optional browser auto-open settings:
+     - `KAPTURE_AUTO_OPEN_BROWSER=true`
+     - `KAPTURE_BROWSER_PATH=<full path to chrome/edge/yandex>`
+     - `KAPTURE_AUTOMATION_URL=https://hh.ru`
 2. Install and run:
    - `cd automation-client`
    - `npm install`

@@ -49,6 +49,28 @@ function Test-PortListening {
   return [bool]$conn
 }
 
+function Resolve-BrowserPath {
+  param([string]$PreferredPath)
+
+  if ($PreferredPath -and (Test-Path $PreferredPath)) {
+    return $PreferredPath
+  }
+
+  $candidates = @(
+    'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+    'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+    'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+    'C:\Users\dshp3\AppData\Local\Yandex\YandexBrowser\Application\browser.exe'
+  )
+
+  foreach ($exe in $candidates) {
+    if (Test-Path $exe) { return $exe }
+  }
+
+  return $null
+}
+
 if ($InstallDepsIfMissing -and -not (Test-Path (Join-Path $appDir 'node_modules'))) {
   Write-Host "[launcher] node_modules not found, running npm install..."
   npm install
@@ -120,6 +142,27 @@ if (Test-PortListening -Port $mcpPort) {
     Write-Host "[launcher] MCP logs:"
     Write-Host "  $mcpLog"
     Write-Host "  $mcpErr"
+  }
+}
+
+$autoOpenBrowserRaw = Get-EnvVarValue -Key 'KAPTURE_AUTO_OPEN_BROWSER' -Files $envFiles
+$autoOpenBrowser = if (-not $autoOpenBrowserRaw) { $true } else { @('1','true','yes','on') -contains $autoOpenBrowserRaw.ToLowerInvariant() }
+
+if ($autoOpenBrowser) {
+  $browserPathCfg = Get-EnvVarValue -Key 'KAPTURE_BROWSER_PATH' -Files $envFiles
+  $browserTargetUrl = Get-EnvVarValue -Key 'KAPTURE_AUTOMATION_URL' -Files $envFiles
+  if (-not $browserTargetUrl) { $browserTargetUrl = 'https://hh.ru' }
+
+  $browserExe = Resolve-BrowserPath -PreferredPath $browserPathCfg
+  if ($browserExe) {
+    try {
+      Start-Process -FilePath $browserExe -ArgumentList $browserTargetUrl | Out-Null
+      Write-Host "[launcher] automation browser opened: $browserExe -> $browserTargetUrl"
+    } catch {
+      Write-Host "[launcher] failed to open automation browser: $($_.Exception.Message)"
+    }
+  } else {
+    Write-Host "[launcher] no Chromium browser detected for auto-open (set KAPTURE_BROWSER_PATH in .env.local)"
   }
 }
 
