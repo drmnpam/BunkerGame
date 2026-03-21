@@ -212,7 +212,35 @@ Write-Host "  - Browser:     Opening..."
 Write-Host "===================================================="
 Write-Host ""
 
-Start-Process 'http://127.0.0.1:5180' -ErrorAction SilentlyContinue | Out-Null
+# Open app in browser - try existing browser first, then default
+$appUrl = 'http://127.0.0.1:5180'
+$browserOpened = $false
+
+# Try to find running Chrome or Edge and open in new tab
+$browserProcesses = @('chrome', 'msedge')
+foreach ($procName in $browserProcesses) {
+    $proc = Get-Process -Name $procName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($proc) {
+        try {
+            # Get browser path from process
+            $browserPath = $proc.Path
+            if ($browserPath) {
+                Start-Process -FilePath $browserPath -ArgumentList $appUrl | Out-Null
+                Write-Host "[launcher] Opened app in existing $procName browser"
+                $browserOpened = $true
+                break
+            }
+        } catch {
+            # Continue to next browser
+        }
+    }
+}
+
+# If no existing browser found, use default browser
+if (-not $browserOpened) {
+    Start-Process $appUrl -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "[launcher] Opened app in default browser"
+}
 
 Write-Host "[launcher] Web UI: http://127.0.0.1:5180"
 Write-Host "[launcher] Server logs:"
