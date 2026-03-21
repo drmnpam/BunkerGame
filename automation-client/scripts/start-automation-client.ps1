@@ -216,14 +216,15 @@ Write-Host ""
 $appUrl = 'http://127.0.0.1:5180'
 $browserOpened = $false
 
-# Try to find running Chrome or Edge and open in new tab
+# Try to find running Chrome or Edge and open in new tab using WMI
 $browserProcesses = @('chrome', 'msedge')
 foreach ($procName in $browserProcesses) {
     $proc = Get-Process -Name $procName -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($proc) {
         try {
-            # Get browser path from process
-            $browserPath = $proc.Path
+            # Get browser path from WMI (more reliable)
+            $wmiProc = Get-WmiObject Win32_Process -Filter "ProcessId=$($proc.Id)" -ErrorAction SilentlyContinue
+            $browserPath = $wmiProc.ExecutablePath
             if ($browserPath) {
                 Start-Process -FilePath $browserPath -ArgumentList $appUrl | Out-Null
                 Write-Host "[launcher] Opened app in existing $procName browser"

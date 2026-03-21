@@ -65,8 +65,10 @@ wss.on('connection', (ws) => {
 
   ws.on('message', async (data) => {
     try {
-      const req = JSON.parse(data.toString());
-      console.log(`[MCP] Request: ${req.method}`);
+      const raw = data.toString();
+      console.log(`[MCP] Raw message: ${raw.substring(0, 200)}`);
+      const req = JSON.parse(raw);
+      console.log(`[MCP] Request: ${req.method} (id=${req.id})`);
 
       // Handle initialize
       if (req.method === 'initialize') {
@@ -135,7 +137,8 @@ wss.on('connection', (ws) => {
         message: `Method not found: ${req.method}` 
       })));
     } catch (e) {
-      console.error('[MCP] Error:', e);
+      console.error('[MCP] Error processing message:', e.message);
+      console.error('[MCP] Stack:', e.stack);
       ws.send(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
     }
   });
