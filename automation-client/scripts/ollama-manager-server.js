@@ -92,6 +92,36 @@ app.post('/stop', (req, res) => {
   }
 });
 
+// Proxy endpoints to forward requests to actual Ollama instance
+// This allows browser clients to communicate with Ollama through this manager
+app.get('/api/tags', async (req, res) => {
+  try {
+    console.log('[Manager] GET /api/tags - proxying to Ollama');
+    const response = await fetch('http://127.0.0.1:11434/api/tags');
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error(`[Manager] /api/tags proxy failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  try {
+    console.log(`[Manager] POST /api/chat - proxying to Ollama (model=${req.body?.model})`);
+    const response = await fetch('http://127.0.0.1:11434/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error(`[Manager] /api/chat proxy failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const port = process.env.PORT || 5182;
 app.listen(port, () => {
   console.log(`[Manager] Ollama manager listening on http://localhost:${port}`);
