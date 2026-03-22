@@ -143,9 +143,6 @@ app.post('/api/chat', async (req, res) => {
     res.status(500).json({ error: `Proxy failed: ${err.message}` });
   }
 });
-    res.status(500).json({ error: err.message });
-  }
-});
 
 const port = process.env.PORT || 5182;
 app.listen(port, () => {
