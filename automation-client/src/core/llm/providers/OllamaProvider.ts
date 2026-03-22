@@ -63,42 +63,52 @@ export class OllamaProvider implements LLMProvider {
 
     const prompt = system ? `${system}\n\n${user}` : user;
 
-    this.logger?.(`[Ollama] generate request: model=${model} baseUrl=${this.baseUrl} promptLength=${prompt.length}`);
+    const endpoint = `${this.baseUrl}/api/chat`;
+    this.logger?.(`[Ollama] generate request: model=${model} baseUrl=${this.baseUrl} endpoint=${endpoint} promptLength=${prompt.length}`);
 
-    // Ollama REST "chat" endpoint.
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      // Ollama REST "chat" endpoint.
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+          options: {
+            temperature: request.temperature ?? 0.2,
+            num_predict: request.maxTokens ?? 512,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        const errMsg = `Ollama API error (HTTP ${res.status}): ${text}`;
+        this.logger?.(`[Ollama] ${errMsg}`);
+        const err = new Error(errMsg);
+        (err as any).kind = 'api' as ErrorKind;
+        throw err;
+      }
+
+      const json = (await res.json()) as any;
+      const content = json?.message?.content ?? '';
+      this.logger?.(`[Ollama] response received: length=${content.length}`);
+
+      return {
+        provider: this.name,
         model,
-        messages: [{ role: 'user', content: prompt }],
-        stream: false,
-        options: {
-          temperature: request.temperature ?? 0.2,
-          num_predict: request.maxTokens ?? 512,
-        },
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      const errMsg = `Ollama API error (HTTP ${res.status}): ${text}`;
-      this.logger?.(`[Ollama] ${errMsg}`);
-      const err = new Error(errMsg);
-      (err as any).kind = 'api' as ErrorKind;
-      throw err;
+        content,
+        raw: json,
+      };
+    } catch (e) {
+      const err = e as Error;
+      const errMsg = `Ollama fetch failed: ${err.message} (endpoint=${endpoint})`;
+      this.logger?.(`[Ollama] ERROR: ${errMsg}`);
+      const newErr = new Error(errMsg);
+      (newErr as any).kind = 'network' as ErrorKind;
+      throw newErr;
     }
-
-    const json = (await res.json()) as any;
-    const content = json?.message?.content ?? '';
-    this.logger?.(`[Ollama] response received: length=${content.length}`);
-
-    return {
-      provider: this.name,
-      model,
-      content,
-      raw: json,
-    };
   }
 }
 

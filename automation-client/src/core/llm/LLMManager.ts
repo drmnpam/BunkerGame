@@ -145,6 +145,7 @@ export class LLMManager {
     let lastError: unknown = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
+        this.logger(`[LLM] withRetry attempt ${attempt + 1}/${retries + 1} calling ${provider.name}.generate()`);
         const res = await this.withTimeout(
           provider.generate(request),
           this.timeoutMs,
@@ -159,14 +160,20 @@ export class LLMManager {
         lastError = e;
         const delayMs = this.retryDelayBaseMs * (attempt + 1);
         const kind = this.classifyProviderErrorKind(e as any);
+        const errorMsg = (e as Error).message;
         this.logger(
-          `[LLM] attempt ${attempt + 1} failed provider=${provider.name}: ${(e as Error).message}; kind=${kind}; sleep ${delayMs}ms`,
+          `[LLM] attempt ${attempt + 1} failed provider=${provider.name}: "${errorMsg}"; kind=${kind}; sleep ${delayMs}ms`,
         );
         // Retrying immediately on unavailable/model/api usually doesn't help and just burns time.
-        if (kind === 'unavailable' || kind === 'model' || kind === 'api') break;
+        if (kind === 'unavailable' || kind === 'model' || kind === 'api') {
+          this.logger(`[LLM] not retrying kind=${kind} - breaking retry loop`);
+          break;
+        }
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }
+    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    this.logger(`[LLM] withRetry exhausted all attempts for ${provider.name}, throwing: "${errorMsg}"`);
     throw lastError instanceof Error
       ? lastError
       : new Error('LLM request failed');

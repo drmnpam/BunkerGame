@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1774184520635" clover="3.2.0">
-  <project timestamp="1774184520636" name="All files">
-    <metrics statements="131" coveredstatements="80" conditionals="94" coveredconditionals="31" methods="30" coveredmethods="20" elements="255" coveredelements="131" complexity="0" loc="131" ncloc="131" packages="2" files="2" classes="2"/>
+<coverage generated="1774184745608" clover="3.2.0">
+  <project timestamp="1774184745608" name="All files">
+    <metrics statements="145" coveredstatements="85" conditionals="96" coveredconditionals="31" methods="30" coveredmethods="20" elements="271" coveredelements="136" complexity="0" loc="145" ncloc="145" packages="2" files="2" classes="2"/>
     <package name="llm">
-      <metrics statements="89" coveredstatements="54" conditionals="72" coveredconditionals="19" methods="21" coveredmethods="14"/>
+      <metrics statements="95" coveredstatements="57" conditionals="74" coveredconditionals="19" methods="21" coveredmethods="14"/>
       <file name="LLMManager.ts" path="C:\Users\dshp3\BunkerGame\automation-client\src\core\llm\LLMManager.ts">
-        <metrics statements="89" coveredstatements="54" conditionals="72" coveredconditionals="19" methods="21" coveredmethods="14"/>
+        <metrics statements="95" coveredstatements="57" conditionals="74" coveredconditionals="19" methods="21" coveredmethods="14"/>
         <line num="7" count="2" type="stmt"/>
         <line num="8" count="2" type="stmt"/>
         <line num="10" count="2" type="stmt"/>
@@ -66,41 +66,47 @@
         <line num="146" count="1" type="stmt"/>
         <line num="147" count="1" type="stmt"/>
         <line num="148" count="1" type="stmt"/>
-        <line num="153" count="1" type="stmt"/>
+        <line num="149" count="1" type="stmt"/>
         <line num="154" count="1" type="stmt"/>
-        <line num="157" count="1" type="stmt"/>
-        <line num="159" count="0" type="stmt"/>
+        <line num="155" count="1" type="stmt"/>
+        <line num="158" count="1" type="stmt"/>
         <line num="160" count="0" type="stmt"/>
         <line num="161" count="0" type="stmt"/>
         <line num="162" count="0" type="stmt"/>
-        <line num="166" count="0" type="cond" truecount="0" falsecount="5"/>
-        <line num="167" count="0" type="stmt"/>
-        <line num="170" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="181" count="1" type="stmt"/>
-        <line num="183" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="186" count="1" type="stmt"/>
-        <line num="187" count="0" type="stmt"/>
-        <line num="188" count="0" type="stmt"/>
-        <line num="189" count="0" type="stmt"/>
+        <line num="163" count="0" type="stmt"/>
+        <line num="164" count="0" type="stmt"/>
+        <line num="168" count="0" type="cond" truecount="0" falsecount="5"/>
+        <line num="169" count="0" type="stmt"/>
+        <line num="170" count="0" type="stmt"/>
+        <line num="172" count="0" type="stmt"/>
+        <line num="175" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="176" count="1" type="stmt"/>
+        <line num="177" count="1" type="cond" truecount="0" falsecount="2"/>
+        <line num="188" count="1" type="stmt"/>
+        <line num="190" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="193" count="1" type="stmt"/>
+        <line num="194" count="0" type="stmt"/>
+        <line num="195" count="0" type="stmt"/>
         <line num="196" count="0" type="stmt"/>
-        <line num="197" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="198" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="205" count="0" type="stmt"/>
-        <line num="209" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="210" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="216" count="0" type="stmt"/>
-        <line num="217" count="0" type="cond" truecount="0" falsecount="4"/>
-        <line num="218" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="219" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="224" count="0" type="stmt"/>
+        <line num="203" count="0" type="stmt"/>
+        <line num="204" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="205" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="212" count="0" type="stmt"/>
+        <line num="216" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="217" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="223" count="0" type="stmt"/>
+        <line num="224" count="0" type="cond" truecount="0" falsecount="4"/>
         <line num="225" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="226" count="0" type="stmt"/>
+        <line num="226" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="231" count="0" type="stmt"/>
+        <line num="232" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="233" count="0" type="stmt"/>
       </file>
     </package>
     <package name="llm.providers">
-      <metrics statements="42" coveredstatements="26" conditionals="22" coveredconditionals="12" methods="9" coveredmethods="6"/>
+      <metrics statements="50" coveredstatements="28" conditionals="22" coveredconditionals="12" methods="9" coveredmethods="6"/>
       <file name="OllamaProvider.ts" path="C:\Users\dshp3\BunkerGame\automation-client\src\core\llm\providers\OllamaProvider.ts">
-        <metrics statements="42" coveredstatements="26" conditionals="22" coveredconditionals="12" methods="9" coveredmethods="6"/>
+        <metrics statements="50" coveredstatements="28" conditionals="22" coveredconditionals="12" methods="9" coveredmethods="6"/>
         <line num="7" count="2" type="stmt"/>
         <line num="11" count="2" type="cond" truecount="1" falsecount="0"/>
         <line num="12" count="2" type="cond" truecount="1" falsecount="0"/>
@@ -131,18 +137,26 @@
         <line num="61" count="1" type="stmt"/>
         <line num="64" count="1" type="cond" truecount="1" falsecount="1"/>
         <line num="66" count="1" type="stmt"/>
+        <line num="67" count="1" type="stmt"/>
         <line num="69" count="1" type="stmt"/>
-        <line num="83" count="1" type="cond" truecount="1" falsecount="1"/>
-        <line num="84" count="0" type="stmt"/>
-        <line num="85" count="0" type="stmt"/>
+        <line num="71" count="1" type="stmt"/>
+        <line num="85" count="1" type="cond" truecount="1" falsecount="1"/>
         <line num="86" count="0" type="stmt"/>
         <line num="87" count="0" type="stmt"/>
         <line num="88" count="0" type="stmt"/>
         <line num="89" count="0" type="stmt"/>
-        <line num="92" count="1" type="stmt"/>
-        <line num="93" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="90" count="0" type="stmt"/>
+        <line num="91" count="0" type="stmt"/>
         <line num="94" count="1" type="stmt"/>
+        <line num="95" count="1" type="cond" truecount="1" falsecount="1"/>
         <line num="96" count="1" type="stmt"/>
+        <line num="98" count="1" type="stmt"/>
+        <line num="105" count="0" type="stmt"/>
+        <line num="106" count="0" type="stmt"/>
+        <line num="107" count="0" type="stmt"/>
+        <line num="108" count="0" type="stmt"/>
+        <line num="109" count="0" type="stmt"/>
+        <line num="110" count="0" type="stmt"/>
       </file>
     </package>
   </project>

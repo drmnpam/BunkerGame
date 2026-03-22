@@ -96,28 +96,53 @@ app.post('/stop', (req, res) => {
 // This allows browser clients to communicate with Ollama through this manager
 app.get('/api/tags', async (req, res) => {
   try {
-    console.log('[Manager] GET /api/tags - proxying to Ollama');
-    const response = await fetch('http://127.0.0.1:11434/api/tags');
+    console.log('[Manager] GET /api/tags - proxying to Ollama at http://127.0.0.1:11434/api/tags');
+    const response = await fetch('http://127.0.0.1:11434/api/tags', { timeout: 5000 });
+    console.log(`[Manager] /api/tags response: HTTP ${response.status}`);
     const data = await response.json();
+    console.log(`[Manager] /api/tags success: ${data?.models?.length} models available`);
     res.json(data);
   } catch (err) {
     console.error(`[Manager] /api/tags proxy failed: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    console.error(`[Manager] /api/tags error stack: ${err.stack}`);
+    res.status(500).json({ error: `Proxy failed: ${err.message}` });
   }
 });
 
 app.post('/api/chat', async (req, res) => {
   try {
-    console.log(`[Manager] POST /api/chat - proxying to Ollama (model=${req.body?.model})`);
+    const model = req.body?.model || 'unknown';
+    const promptLength = JSON.stringify(req.body).length;
+    console.log(`[Manager] POST /api/chat - received request (model=${model} bodySize=${promptLength})`);
+    console.log(`[Manager] Proxying to Ollama at http://127.0.0.1:11434/api/chat`);
+    
     const response = await fetch('http://127.0.0.1:11434/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
+      timeout: 60000,
     });
+    
+    console.log(`[Manager] /api/chat response: HTTP ${response.status}`);
+    
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[Manager] /api/chat Ollama error: HTTP ${response.status} - ${errText.substring(0, 200)}`);
+      return res.status(response.status).json({ error: errText });
+    }
+    
     const data = await response.json();
+    const contentLength = data?.message?.content?.length || 0;
+    console.log(`[Manager] /api/chat success: content length=${contentLength}`);
     res.json(data);
   } catch (err) {
     console.error(`[Manager] /api/chat proxy failed: ${err.message}`);
+    console.error(`[Manager] Error name: ${err.name}`);
+    console.error(`[Manager] Error code: ${err.code}`);
+    console.error(`[Manager] Error stack: ${err.stack}`);
+    res.status(500).json({ error: `Proxy failed: ${err.message}` });
+  }
+});
     res.status(500).json({ error: err.message });
   }
 });

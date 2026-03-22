@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">59.22% </span>
+                <span class="strong">59.25% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>61/103</span>
+                <span class='fraction'>64/108</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">26.38% </span>
+                <span class="strong">25.67% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>19/72</span>
+                <span class='fraction'>19/74</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">60.67% </span>
+                <span class="strong">60% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>54/89</span>
+                <span class='fraction'>57/95</span>
             </div>
         
             
@@ -292,7 +292,14 @@
 <a name='L227'></a><a href='#L227'>227</a>
 <a name='L228'></a><a href='#L228'>228</a>
 <a name='L229'></a><a href='#L229'>229</a>
-<a name='L230'></a><a href='#L230'>230</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L230'></a><a href='#L230'>230</a>
+<a name='L231'></a><a href='#L231'>231</a>
+<a name='L232'></a><a href='#L232'>232</a>
+<a name='L233'></a><a href='#L233'>233</a>
+<a name='L234'></a><a href='#L234'>234</a>
+<a name='L235'></a><a href='#L235'>235</a>
+<a name='L236'></a><a href='#L236'>236</a>
+<a name='L237'></a><a href='#L237'>237</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -440,6 +447,7 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -454,14 +462,20 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -668,6 +682,7 @@ export class LLMManager {
     let lastError: unknown = null;
     for (let attempt = 0; attempt &lt;= retries; attempt++) {
       try {
+        this.logger(`[LLM] withRetry attempt ${attempt + 1}/${retries + 1} calling ${provider.name}.generate()`);
         const res = await this.withTimeout(
           provider.generate(request),
           this.timeoutMs,
@@ -682,15 +697,21 @@ export class LLMManager {
 <span class="cstat-no" title="statement not covered" >        lastError = e;</span>
         const delayMs = <span class="cstat-no" title="statement not covered" >this.retryDelayBaseMs * (attempt + 1);</span>
         const kind = <span class="cstat-no" title="statement not covered" >this.classifyProviderErrorKind(e as any);</span>
+        const errorMsg = (<span class="cstat-no" title="statement not covered" >e as Error).message;</span>
 <span class="cstat-no" title="statement not covered" >        this.logger(</span>
-          `[LLM] attempt ${attempt + 1} failed provider=${provider.name}: ${(e as Error).message}; kind=${kind}; sleep ${delayMs}ms`,
+          `[LLM] attempt ${attempt + 1} failed provider=${provider.name}: "${errorMsg}"; kind=${kind}; sleep ${delayMs}ms`,
         );
         // Retrying immediately on unavailable/model/api usually doesn't help and just burns time.
-<span class="cstat-no" title="statement not covered" >        if (kind === 'unavailable' || kind === 'model' || kind === 'api') <span class="cstat-no" title="statement not covered" >break;</span></span>
+<span class="cstat-no" title="statement not covered" >        if (kind === 'unavailable' || kind === 'model' || kind === 'api') {</span>
+<span class="cstat-no" title="statement not covered" >          this.logger(`[LLM] not retrying kind=${kind} - breaking retry loop`);</span>
+<span class="cstat-no" title="statement not covered" >          break;</span>
+        }
 <span class="cstat-no" title="statement not covered" >        await new <span class="fstat-no" title="function not covered" >Promise((r</span>) =&gt; <span class="cstat-no" title="statement not covered" >setTimeout(r, delayMs))</span>;</span>
       }
     }
-<span class="cstat-no" title="statement not covered" >    throw lastError instanceof Error</span>
+    const errorMsg = <span class="cstat-no" title="statement not covered" >lastError instanceof Error ? lastError.message : String(lastError);</span>
+    this.logger(`[LLM] withRetry exhausted all attempts for ${provider.name}, throwing: "${errorMsg}"`);
+    throw lastError instanceof Error
       ? lastError
       : new Error('LLM request failed');
   }
@@ -757,7 +778,7 @@ export class LLMManager {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-22T13:02:00.621Z
+                at 2026-03-22T13:05:45.593Z
             </div>
         <script src="../prettify.js"></script>
         <script>

@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">61.9% </span>
+                <span class="strong">56% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>26/42</span>
+                <span class='fraction'>28/50</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">61.9% </span>
+                <span class="strong">56% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>26/42</span>
+                <span class='fraction'>28/50</span>
             </div>
         
             
@@ -167,7 +167,17 @@
 <a name='L102'></a><a href='#L102'>102</a>
 <a name='L103'></a><a href='#L103'>103</a>
 <a name='L104'></a><a href='#L104'>104</a>
-<a name='L105'></a><a href='#L105'>105</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -233,7 +243,9 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -267,6 +279,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -336,42 +356,52 @@ export class OllamaProvider implements LLMProvider {
 &nbsp;
     const prompt = system ? <span class="branch-0 cbranch-no" title="branch not covered" >`${system}\n\n${user}` : u</span>ser;
 &nbsp;
-    this.logger?.(`[Ollama] generate request: model=${model} baseUrl=${this.baseUrl} promptLength=${prompt.length}`);
+    const endpoint = `${this.baseUrl}/api/chat`;
+    this.logger?.(`[Ollama] generate request: model=${model} baseUrl=${this.baseUrl} endpoint=${endpoint} promptLength=${prompt.length}`);
 &nbsp;
-    // Ollama REST "chat" endpoint.
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      // Ollama REST "chat" endpoint.
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+          options: {
+            temperature: request.temperature ?? 0.2,
+            num_predict: request.maxTokens ?? 512,
+          },
+        }),
+      });
+&nbsp;
+      <span class="missing-if-branch" title="if path not taken" >I</span>if (!res.ok) {
+        const text = <span class="cstat-no" title="statement not covered" >await res.text();</span>
+        const errMsg = <span class="cstat-no" title="statement not covered" >`Ollama API error (HTTP ${res.status}): ${text}`;</span>
+<span class="cstat-no" title="statement not covered" >        this.logger?.(`[Ollama] ${errMsg}`);</span>
+        const err = <span class="cstat-no" title="statement not covered" >new Error(errMsg);</span>
+        (<span class="cstat-no" title="statement not covered" >err as any).kind = 'api' as ErrorKind;</span>
+<span class="cstat-no" title="statement not covered" >        throw err;</span>
+      }
+&nbsp;
+      const json = (await res.json()) as any;
+      const content = json?.message?.content ?? <span class="branch-1 cbranch-no" title="branch not covered" >'';</span>
+      this.logger?.(`[Ollama] response received: length=${content.length}`);
+&nbsp;
+      return {
+        provider: this.name,
         model,
-        messages: [{ role: 'user', content: prompt }],
-        stream: false,
-        options: {
-          temperature: request.temperature ?? 0.2,
-          num_predict: request.maxTokens ?? 512,
-        },
-      }),
-    });
-&nbsp;
-    <span class="missing-if-branch" title="if path not taken" >I</span>if (!res.ok) {
-      const text = <span class="cstat-no" title="statement not covered" >await res.text();</span>
-      const errMsg = <span class="cstat-no" title="statement not covered" >`Ollama API error (HTTP ${res.status}): ${text}`;</span>
-<span class="cstat-no" title="statement not covered" >      this.logger?.(`[Ollama] ${errMsg}`);</span>
-      const err = <span class="cstat-no" title="statement not covered" >new Error(errMsg);</span>
-      (<span class="cstat-no" title="statement not covered" >err as any).kind = 'api' as ErrorKind;</span>
-<span class="cstat-no" title="statement not covered" >      throw err;</span>
+        content,
+        raw: json,
+      };
+    } catch (e) {
+      const err = <span class="cstat-no" title="statement not covered" >e as Error;</span>
+      const errMsg = <span class="cstat-no" title="statement not covered" >`Ollama fetch failed: ${err.message} (endpoint=${endpoint})`;</span>
+<span class="cstat-no" title="statement not covered" >      this.logger?.(`[Ollama] ERROR: ${errMsg}`);</span>
+      const newErr = <span class="cstat-no" title="statement not covered" >new Error(errMsg);</span>
+      (<span class="cstat-no" title="statement not covered" >newErr as any).kind = 'network' as ErrorKind;</span>
+<span class="cstat-no" title="statement not covered" >      throw newErr;</span>
     }
-&nbsp;
-    const json = (await res.json()) as any;
-    const content = json?.message?.content ?? <span class="branch-1 cbranch-no" title="branch not covered" >'';</span>
-    this.logger?.(`[Ollama] response received: length=${content.length}`);
-&nbsp;
-    return {
-      provider: this.name,
-      model,
-      content,
-      raw: json,
-    };
   }
 }
 &nbsp;
@@ -382,7 +412,7 @@ export class OllamaProvider implements LLMProvider {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-22T13:02:00.621Z
+                at 2026-03-22T13:05:45.593Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
