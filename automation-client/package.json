@@ -10,15 +10,13 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "serve:ollama": "node scripts/ollama-manager-server.js",
-    "serve:mcp": "node scripts/mcp-server.js"
+    "serve:ollama": "node scripts/ollama-manager-server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
     "http-proxy-middleware": "^2.0.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "ws": "^8.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

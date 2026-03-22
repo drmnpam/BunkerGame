@@ -49,7 +49,9 @@ export class LLMManager {
   async generate(request: LLMRequest, retries = 1): Promise<LLMResponse> {
     if (!this.activeProviderName) throw new Error('No active LLM provider');
 
-    const candidates = this.getProvidersToTry();
+    // For local/offline providers (ollama), don't fallback to cloud providers
+    const isLocalProvider = ['ollama'].includes(this.activeProviderName);
+    const candidates = isLocalProvider ? [this.providers.get(this.activeProviderName)!] : this.getProvidersToTry();
 
     const sys = request.messages.find((m) => m.role === 'system')?.content ?? '';
     const user = request.messages
@@ -58,7 +60,7 @@ export class LLMManager {
       .join('\n')
       .slice(0, 250);
     this.logger(
-      `[LLM] request candidates=${candidates.map((p) => p.name).join(' -> ')} model=${request.model} retries=${retries}`,
+      `[LLM] request candidates=${candidates.map((p) => p.name).join(' -> ')} model=${request.model} retries=${retries} strictMode=${isLocalProvider}`,
     );
     this.logger(
       `[LLM] prompt summary: systemChars=${sys.length} userPreview="${user.replaceAll(

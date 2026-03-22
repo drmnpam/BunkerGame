@@ -40,26 +40,14 @@ export const App: React.FC = () => {
 
   const ollamaControl = useMemo(() => new OllamaControl(), []);
 
-  // Auto-connect MCP on app start
-  useEffect(() => {
-    const connectMcp = async () => {
-      appendLog('[MCP] Auto-connecting on startup...');
-      try {
-        const mcp = new MCPClient(appendLog);
-        await mcp.connect();
-        appendLog('[MCP] Connected successfully');
-        setMcpDisconnected(false);
-      } catch (e) {
-        const msg = (e as Error).message;
-        appendLog(`[MCP] Connection failed: ${msg}`);
-        setMcpDisconnected(true);
-      }
-    };
-    connectMcp();
-  }, []);
-
   const appendLog = (msg: string) => {
     setLog((prev) => [...prev, `${new Date().toLocaleTimeString()} ${msg}`]);
+  };
+
+  const handleProviderChange = (newProvider: ProviderName) => {
+    setProvider(newProvider);
+    setResumeCheckpoint(null); // Clear checkpoint when switching providers
+    appendLog(`[UI] Provider changed to: ${newProvider} (checkpoint cleared)`);
   };
 
   const canRun = useMemo(
@@ -67,7 +55,7 @@ export const App: React.FC = () => {
     [status, taskText],
   );
   const canContinue = useMemo(
-    () => status !== 'running' && status !== 'paused' && resumeCheckpoint !== null,
+    () => resumeCheckpoint !== null && status !== 'running',
     [status, resumeCheckpoint],
   );
   const canPauseToggle = status === 'running' || status === 'paused';
@@ -87,29 +75,13 @@ export const App: React.FC = () => {
         return;
       }
       try {
+        appendLog(`[UI] checking Ollama availability at ${ollamaBaseUrl}...`);
         const p = new OllamaProvider(ollamaBaseUrl);
         const ok = await p.isAvailable();
         setOllamaAvailable(ok);
-        
-        // Auto-start Ollama if not available
-        if (!ok) {
-          appendLog('[Ollama] Not available, auto-starting...');
-          setOllamaStarting(true);
-          const result = await ollamaControl.startOllama();
-          appendLog(`[Ollama] ${result.message}`);
-          
-          if (result.success) {
-            // Wait and re-check availability
-            await new Promise((r) => setTimeout(r, 3000));
-            const recheck = await p.isAvailable();
-            setOllamaAvailable(recheck);
-            appendLog(`[Ollama] Available after start: ${recheck}`);
-          } else {
-            appendLog(`[Ollama] Auto-start failed: ${result.message}`);
-          }
-          setOllamaStarting(false);
-        }
-      } catch {
+        appendLog(`[UI] Ollama available: ${ok}`);
+      } catch (e) {
+        appendLog(`[UI] Ollama check failed: ${(e as Error).message}`);
         setOllamaAvailable(false);
       }
     };
@@ -138,8 +110,8 @@ export const App: React.FC = () => {
     const next = !isPaused;
     setIsPaused(next);
     pausedRef.current = next;
-    setStatus(next ? 'paused' : 'running');
-    appendLog(next ? '[UI] pause requested' : '[UI] resume requested');
+    // Don't set status here - TaskExecutor will update it via callbacks when pause takes effect
+    appendLog(next ? '[UI] pause requested (executor will pause at next wait point)' : '[UI] resume requested');
   };
 
   const handleCopyLogs = async () => {
@@ -175,7 +147,7 @@ export const App: React.FC = () => {
         appendLog(`[UI] continue requested from stepIndex=${resumeCheckpoint!.nextStepIndex}`);
       }
 
-      appendLog(`Provider selected=${runProvider}`);
+      appendLog(`[UI] Provider selected: ${runProvider} (will NOT fallback to other providers)`);
 
       const llmManager = new LLMManager(appendLog);
       llmManager.registerProvider(new GeminiProvider(apiKey));
@@ -185,6 +157,7 @@ export const App: React.FC = () => {
       llmManager.registerProvider(new ClaudeProvider(apiKey));
       llmManager.registerProvider(new DeepSeekProvider(apiKey));
       llmManager.setActiveProvider(runProvider);
+      appendLog(`[UI] LLM Manager initialized with ${runProvider} as strict primary`);
 
       const state = new StateManager();
       const mcp = new MCPClient(appendLog);
@@ -277,7 +250,7 @@ export const App: React.FC = () => {
               <select
                 className="select-input"
                 value={provider}
-                onChange={(e) => setProvider(e.target.value as ProviderName)}
+                onChange={(e) => handleProviderChange(e.target.value as ProviderName)}
               >
                 <option value="openrouter">OpenRouter</option>
                 <option value="gemini">Gemini</option>
