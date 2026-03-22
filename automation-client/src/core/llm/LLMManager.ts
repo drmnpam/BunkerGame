@@ -74,12 +74,17 @@ export class LLMManager {
     const activeName = this.activeProviderName;
     for (const provider of candidates) {
       const isActive = provider.name === activeName;
-      const available = await provider.isAvailable().catch(() => false);
-      if (!available) {
-        this.logger(
-          `[LLM] skip provider=${provider.name} isAvailable=false (activeProvider=${activeName})`,
-        );
-        continue;
+      
+      // In strict mode (local providers), skip availability check and go directly to generate
+      // This avoids CORS issues and lets the real error surface
+      if (!isLocalProvider) {
+        const available = await provider.isAvailable().catch(() => false);
+        if (!available) {
+          this.logger(
+            `[LLM] skip provider=${provider.name} isAvailable=false (activeProvider=${activeName})`,
+          );
+          continue;
+        }
       }
 
       this.logger(`[LLM] trying provider=${provider.name}`);

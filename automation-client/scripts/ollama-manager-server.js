@@ -4,28 +4,46 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 const app = express();
+
+// Enable CORS for all routes to allow browser requests
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 
 let ollamaProcess = null;
 
 app.get('/status', async (req, res) => {
   try {
-    const response = await fetch('http://127.0.0.1:11434/api/tags');
+    console.log('[Manager] GET /status - checking Ollama at http://127.0.0.1:11434');
+    const response = await fetch('http://127.0.0.1:11434/api/tags', { timeout: 5000 });
     const available = response.ok;
     const data = available ? await response.json() : null;
+    console.log(`[Manager] Ollama status: available=${available} models=${data?.models?.length ?? 0}`);
     res.json({ available, running: !!ollamaProcess, models: data?.models || [] });
-  } catch {
+  } catch (err) {
+    console.error(`[Manager] Status check failed: ${err.message}`);
     res.json({ available: false, running: !!ollamaProcess, models: [] });
   }
 });
 
 app.post('/start', async (req, res) => {
+  console.log('[Manager] POST /start - start Ollama request');
   if (ollamaProcess) {
+    console.log(`[Manager] Ollama already running (PID: ${ollamaProcess.pid})`);
     return res.json({ status: 'already running', pid: ollamaProcess.pid });
   }
 
   try {
     // Try to start ollama directly
+    console.log('[Manager] Spawning ollama serve --port 11434...');
     ollamaProcess = spawn('ollama', ['serve', '--port', '11434'], {
       detached: true,
       stdio: 'ignore',
@@ -37,35 +55,44 @@ app.post('/start', async (req, res) => {
 
     // Check if it's actually running
     try {
-      const response = await fetch('http://127.0.0.1:11434/api/tags');
+      console.log('[Manager] Checking if Ollama is actually running...');
+      const response = await fetch('http://127.0.0.1:11434/api/tags', { timeout: 5000 });
       if (response.ok) {
+        console.log(`[Manager] Ollama started successfully (PID: ${ollamaProcess.pid})`);
         return res.json({ status: 'started', pid: ollamaProcess.pid });
       }
-    } catch {
+    } catch (e) {
+      console.error(`[Manager] Ollama started but not responding: ${e.message}`);
       // ignore
     }
 
     res.status(500).json({ error: 'Failed to start Ollama. Is it installed and in PATH?' });
   } catch (err) {
+    console.error(`[Manager] Start failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post('/stop', (req, res) => {
+  console.log('[Manager] POST /stop - stop Ollama request');
   if (ollamaProcess) {
     try {
+      console.log(`[Manager] Killing Ollama process (PID: ${ollamaProcess.pid})`);
       process.kill(-ollamaProcess.pid);
       ollamaProcess = null;
+      console.log('[Manager] Ollama stopped successfully');
       res.json({ status: 'stopped' });
     } catch (err) {
+      console.error(`[Manager] Stop failed: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   } else {
+    console.log('[Manager] No Ollama process to stop');
     res.json({ status: 'not running' });
   }
 });
 
 const port = process.env.PORT || 5182;
 app.listen(port, () => {
-  console.log(`Ollama manager listening on http://localhost:${port}`);
+  console.log(`[Manager] Ollama manager listening on http://localhost:${port}`);
 });
