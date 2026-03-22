@@ -123,7 +123,7 @@ CORE ACTION RULES:
    - wait: needs |waitMs|
    - press_key: needs |key| (Enter, Tab, Escape, etc)
    - scroll: needs |direction| (up/down/left/right) and |deltaY| or |deltaX|
-   - open_url: needs |value| (URL)
+   - open_url: needs |value| (MUST be full URL like "https://example.com" NOT "current URL" or placeholder text)
 
 ✅ Status rules:
    - "continue" → more steps needed
@@ -133,6 +133,7 @@ VALID ACTION EXAMPLES:
 {"status":"continue","action":"click","selector":"[data-qa*=\\"search-button\\"]","description":"Click search to find jobs"}
 {"status":"continue","action":"type","selector":"input[type=\\"text\\"]","value":"Project Manager","description":"Enter job title"}
 {"status":"continue","action":"extract","selector":"body","extractStrategy":"inner_text","description":"Understand page structure"}
+{"status":"continue","action":"open_url","value":"https://kaliningrad.hh.ru/search","description":"Navigate to search page"}
 {"status":"done","description":"Task complete","finalResult":"Applied to 5 jobs successfully"}
 
 ═══════════════════════════════════════════════════════════════════════════════
